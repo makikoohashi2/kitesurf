@@ -115,6 +115,22 @@ await browser.disconnect();
 Use the port from `KITESURF_PORT` if you selected a different port. HTTP
 discovery is available at `http://127.0.0.1:8787/json/version`.
 
+## Read HTTP navigation diagnostics
+
+CDP clients can opt in to a diagnostic result by calling `Page.navigate` with
+`{ "url": "https://example.com/", "kitesurfDiagnostics": true }`. The reply's
+`kitesurfDiagnostics` includes the requested and final URLs, each redirect's
+source, destination and status, and the final document's HTTP status. The
+`headersReceivedMs` values measure elapsed time from the start of the document
+request chain to the response headers for the corresponding hop.
+
+`navigationCompleted` indicates that the navigation finished. `httpSuccess`
+indicates a 2xx response and is `null` when no final HTTP response was received.
+An HTTP 403 page can finish loading with `httpSuccess: false`. The summary omits
+URL credentials, queries, fragments, cookies and authentication headers. It
+includes `Server`, `Via` and supported request ID headers only when present in
+the final response. These headers alone cannot establish who refused a request.
+
 ## Use Chrome DevTools
 
 With `pnpm run dev`, open `http://127.0.0.1:8787/` in Chrome. Enter a URL to

@@ -33,7 +33,28 @@ declare module "devtools-protocol" {
       interface SetDocumentContentResponse {
         error?: string;
       }
+      interface NavigationRedirectDiagnostic {
+        url: string;
+        destinationUrl: string;
+        status: number;
+        headersReceivedMs: number;
+      }
+      interface NavigationDiagnostics {
+        requestedUrl: string;
+        finalUrl: string | null;
+        redirects: NavigationRedirectDiagnostic[];
+        status: number | null;
+        responseHeaders: Record<string, string>;
+        headersReceivedMs: number | null;
+        navigationCompleted: boolean;
+        httpSuccess: boolean | null;
+      }
+      interface NavigateResponse {
+        kitesurfDiagnostics?: NavigationDiagnostics;
+      }
       interface NavigateRequest {
+        /** Include a redacted HTTP summary in the reply. */
+        kitesurfDiagnostics?: boolean;
         _kitesurfInternal?: boolean;
         _kitesurfPostData?: string;
         _kitesurfPostContentType?: string;

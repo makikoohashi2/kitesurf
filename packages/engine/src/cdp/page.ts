@@ -733,6 +733,8 @@ export async function handlePage(
     case "Page.navigate": {
       let url = req.params?.url ?? "about:blank";
       const ksParams = req.params;
+      const diagnostics =
+        ksParams?.kitesurfDiagnostics === true ? newNavigationDiagnostics(url) : undefined;
       const ksPostData =
         typeof ksParams?._kitesurfPostData === "string" ? ksParams._kitesurfPostData : null;
       const ksPostContentType =
@@ -742,8 +744,8 @@ export async function handlePage(
       if (ctx.browser.cdpDebug) {
         console.log(
           `[kitesurf-nav] Page.navigate received id=${req.id} ` +
-            `sessionId=${JSON.stringify(req.sessionId)} url=${url} ` +
-            `prevTargetUrl=${JSON.stringify(target.url)} ` +
+            `sessionId=${JSON.stringify(req.sessionId)} url=${navigationDiagnosticUrl(url)} ` +
+            `prevTargetUrl=${navigationDiagnosticUrl(target.url)} ` +
             `gen=${target.navigateGeneration}`,
         );
       }
@@ -764,6 +766,8 @@ export async function handlePage(
           ? ksParams._kitesurfLoaderId
           : makeTargetId();
       const loaderId = target.loaderId;
+      const reply = (errorText?: string) =>
+        navigateReply(target.frameId, loaderId, errorText, diagnostics);
 
       try {
         const parsedNavUrl = new URL(url);
@@ -817,11 +821,7 @@ export async function handlePage(
           const msg = e instanceof Error ? e.message : String(e);
           console.warn("kitesurf: navigate(about:blank) createDom trap:", msg);
           target.dom = null;
-          return navigateReply(
-            target.frameId,
-            loaderId,
-            `navigate: wasm trap during parse: ${msg}`,
-          );
+          return reply(`navigate: wasm trap during parse: ${msg}`);
         }
         const {
           console: capturedConsole,
@@ -835,7 +835,7 @@ export async function handlePage(
         emitCapturedExceptions(ctx, target, exceptions, req.sessionId);
         emitMutations(ctx, target, cdpMutations);
         clearPendingNavAbort(target, navAbort);
-        return navigateReply(target.frameId, loaderId);
+        return reply();
       }
 
       emitFrameStartedLoading(ctx, target, mainFrame(target), req.sessionId);
@@ -923,6 +923,7 @@ export async function handlePage(
           allowDocumentBypass: true,
           skipRequestBlocker: true,
           topLevelDocument: true,
+          throwOnDocumentHeadersTimeout: diagnostics !== undefined,
           walksOwnRedirects: true,
           extraHeaders: navExtraHeaders,
         };
@@ -947,6 +948,8 @@ export async function handlePage(
             hopBody[i] = ksPostData.charCodeAt(i) & 0xff;
           }
         }
+        const documentRequestStarted = Date.now();
+        let hopHeadersReceivedMs = 0;
         try {
           const walk = await walkRedirects({
             url,
@@ -973,6 +976,12 @@ export async function handlePage(
               }
             },
             onRedirect: (hop) => {
+              diagnostics?.redirects.push({
+                url: navigationDiagnosticUrl(hop.fromUrl),
+                destinationUrl: navigationDiagnosticUrl(hop.newUrl),
+                status: hop.status,
+                headersReceivedMs: hopHeadersReceivedMs,
+              });
               if (!chainLeftSite) {
                 const from = schemefulSite(hop.fromUrl);
                 const to = schemefulSite(hop.newUrl);
@@ -1000,15 +1009,29 @@ export async function handlePage(
                 { url: redactUrl(hopReq.url) },
               );
               fetchP.catch(() => {});
-              return Promise.race([fetchP, abortP]);
+              const response = Promise.race([fetchP, abortP]);
+              if (!diagnostics) return response;
+              return response.then((result) => {
+                hopHeadersReceivedMs = Math.max(0, Date.now() - documentRequestStarted);
+                return result;
+              });
             },
           });
           if (!walk.ok) {
             ctx.browser.networkEvents.failRequest(requestId, "net::ERR_TOO_MANY_REDIRECTS");
-            return navigateReply(target.frameId, loaderId, "net::ERR_TOO_MANY_REDIRECTS");
+            return reply("net::ERR_TOO_MANY_REDIRECTS");
           }
           resp = walk.response;
           currentUrl = walk.finalUrl;
+          if (diagnostics) {
+            diagnostics.finalUrl = navigationDiagnosticUrl(currentUrl);
+            if (/^https?:/.test(diagnostics.finalUrl)) {
+              diagnostics.status = resp.status;
+              diagnostics.httpSuccess = resp.ok;
+              diagnostics.headersReceivedMs = hopHeadersReceivedMs;
+              diagnostics.responseHeaders = navigationResponseHeaders(resp.headers);
+            }
+          }
           // A cross-origin hop cuts the Referer down to its origin, so the
           // terminal hop's value replaces the one the first request sent.
           target.docReferrer = walk.referrer || null;
@@ -1019,7 +1042,7 @@ export async function handlePage(
             errorText ?? (fetchErr instanceof Error ? fetchErr.message : String(fetchErr)),
           );
           if (errorText) {
-            return navigateReply(target.frameId, loaderId, errorText);
+            return reply(errorText);
           }
           throw fetchErr;
         }
@@ -1037,7 +1060,7 @@ export async function handlePage(
           });
           ctx.browser.networkEvents.drain();
           clearPendingNavAbort(target, navAbort);
-          return navigateReply(target.frameId, loaderId, "net::ERR_ABORTED");
+          return reply("net::ERR_ABORTED");
         }
         const finalUrl = currentUrl;
         target.url = finalUrl;
@@ -1062,7 +1085,7 @@ export async function handlePage(
             const errorText = cappedErrorText(read.failure);
             ctx.browser.networkEvents.failRequest(requestId, errorText);
             clearPendingNavAbort(target, navAbort);
-            return navigateReply(target.frameId, loaderId, errorText);
+            return reply(errorText);
           }
           const buf = read.bytes;
           const decoded = decodeHtmlBytes(buf, ct);
@@ -1089,7 +1112,7 @@ export async function handlePage(
             const errorText = cappedErrorText(read.failure);
             ctx.browser.networkEvents.failRequest(requestId, errorText);
             clearPendingNavAbort(target, navAbort);
-            return navigateReply(target.frameId, loaderId, errorText);
+            return reply(errorText);
           }
           let wrapper: string;
           if (docKind === "image") {
@@ -1189,11 +1212,12 @@ export async function handlePage(
         emitCapturedConsole(ctx, target, capturedConsole, req.sessionId);
         emitCapturedExceptions(ctx, target, exceptions, req.sessionId);
         emitMutations(ctx, target, cdpMutations);
+        if (diagnostics && navAbort.signal.aborted) return reply("net::ERR_ABORTED");
         if (target.pendingNavAbort === navAbort) target.pendingNavAbort = null;
-        return navigateReply(target.frameId, loaderId);
+        return reply();
       } catch (err) {
         const errorText = err instanceof Error ? err.message : String(err);
-        return navigateReply(target.frameId, loaderId, errorText);
+        return reply(errorText);
       }
     }
 
@@ -2142,7 +2166,7 @@ async function pushNavigateToPageScriptInner(
     }
     const errsSuffix = externalErr > 0 ? ` errors=[${errSamples.join(" | ")}]` : "";
     console.log(
-      `[kitesurf-nav] url=${url} scripts: total=${totalScripts} inline=${inlineScripts} ext-ok=${externalOk} ext-err=${externalErr}${errsSuffix}`,
+      `[kitesurf-nav] url=${navigationDiagnosticUrl(url)} scripts: total=${totalScripts} inline=${inlineScripts} ext-ok=${externalOk} ext-err=${externalErr}${errsSuffix}`,
     );
     if (ctx.browser.cdpDebug) {
       for (let i = 0; i < scriptDescriptors.length; i++) {
@@ -2353,7 +2377,7 @@ async function pushNavigateToPageScriptInner(
       const fontDegraded = summary.fontDegradedReads ?? 0;
       const fontDegradedSuffix = fontDegraded > 0 ? ` fontDegradedReads=${fontDegraded}` : "";
       console.log(
-        `[kitesurf-nav] done url=${url} consoleEntries=${consoleCount} mutations=${mutationsCount} cookieWrites=${cookieWritesCount}${errSuffix}${bundleExecSuffix}${fontDegradedSuffix}`,
+        `[kitesurf-nav] done url=${navigationDiagnosticUrl(url)} consoleEntries=${consoleCount} mutations=${mutationsCount} cookieWrites=${cookieWritesCount}${errSuffix}${bundleExecSuffix}${fontDegradedSuffix}`,
       );
     } catch (err) {
       console.warn(
@@ -2637,16 +2661,73 @@ export function mainFrame(t: TargetState): FrameState {
   return makeMainFrameState({ frameId: t.frameId, loaderId: t.loaderId, url: t.url });
 }
 
-// Chrome includes isDownload in every Page.navigate reply, and Playwright reads it. Kitesurf
-// aborts a response Chrome would download (net::ERR_ABORTED), so it never reports a download.
+function navigationDiagnosticUrl(raw: string): string {
+  try {
+    const url = new URL(raw || "about:blank");
+    if (url.protocol === "http:" || url.protocol === "https:") return url.origin + url.pathname;
+    if (url.protocol === "about:" && url.pathname === "blank") return "about:blank";
+    // An opaque URL can contain document data or credentials in its path.
+    return url.protocol;
+  } catch {
+    return "(unparseable-url)";
+  }
+}
+
+function newNavigationDiagnostics(url: string): Protocol.Page.NavigationDiagnostics {
+  return {
+    requestedUrl: navigationDiagnosticUrl(url),
+    finalUrl: null,
+    redirects: [],
+    status: null,
+    responseHeaders: {},
+    headersReceivedMs: null,
+    navigationCompleted: false,
+    httpSuccess: null,
+  };
+}
+
+const NAVIGATION_RESPONSE_HEADERS = [
+  "server",
+  "via",
+  "request-id",
+  "x-request-id",
+  "x-correlation-id",
+  "cf-ray",
+  "x-amzn-requestid",
+  "x-amz-request-id",
+  "x-amz-cf-id",
+  "x-ms-request-id",
+];
+
+function navigationResponseHeaders(headers: Headers): Record<string, string> {
+  const selected: Record<string, string> = {};
+  for (const name of NAVIGATION_RESPONSE_HEADERS) {
+    const value = headers.get(name);
+    if (value) selected[name] = value;
+  }
+  return selected;
+}
+
+// Chromium includes isDownload in its reply. Keep the diagnostic payload opt-in.
 function navigateReply(
   frameId: string,
   loaderId: string,
   errorText?: string,
+  diagnostics?: Protocol.Page.NavigationDiagnostics,
 ): Protocol.Page.NavigateResponse {
-  return errorText === undefined
-    ? { frameId, loaderId, isDownload: false }
-    : { frameId, loaderId, errorText, isDownload: false };
+  const reply: Protocol.Page.NavigateResponse = { frameId, loaderId, isDownload: false };
+  if (errorText !== undefined) {
+    reply.errorText =
+      diagnostics && !/^net::ERR_[A-Z0-9_]+$/.test(errorText) ? "Navigation failed" : errorText;
+  }
+  if (diagnostics) {
+    diagnostics.navigationCompleted = errorText === undefined;
+    if (diagnostics.navigationCompleted && diagnostics.finalUrl === null) {
+      diagnostics.finalUrl = diagnostics.requestedUrl;
+    }
+    reply.kitesurfDiagnostics = diagnostics;
+  }
+  return reply;
 }
 
 function navErrorText(err: unknown, aborted: boolean): string | null {

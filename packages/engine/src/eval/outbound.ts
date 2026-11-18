@@ -87,6 +87,7 @@ export interface OutboundProps {
   localTraceParent?: import("../tracing.ts").SpanContext;
   mainFrameId?: string;
   mainLoaderId?: string;
+  throwOnDocumentHeadersTimeout?: boolean;
   extraHeaders?: Record<string, string>;
   pageUrl?: string;
   // The document response's Referrer-Policy, shared with frame navigation.
@@ -957,7 +958,7 @@ export class SandboxOutbound extends WorkerEntrypoint<SandboxOutboundEnv, Outbou
         console.warn(
           `[ks-egress] slow headers: ${__egressMs}ms ` +
             `type=${request.headers.get("x-kitesurf-resource-type") ?? "Other"} ` +
-            `url=${forwardRequest.url.slice(0, MAX_SLOW_HEADER_URL_PREVIEW_CHARS)}`,
+            `url=${diagnosticUrl(forwardRequest.url).slice(0, MAX_SLOW_HEADER_URL_PREVIEW_CHARS)}`,
         );
       }
     } catch (err) {
@@ -968,6 +969,7 @@ export class SandboxOutbound extends WorkerEntrypoint<SandboxOutboundEnv, Outbou
       if (egressAbortCtl.signal.aborted) {
         const detail = `kitesurf: egress timeout after ${headersCapMs}ms`;
         logBlocked(request.url, detail);
+        if (props?.throwOnDocumentHeadersTimeout) throw new Error("net::ERR_TIMED_OUT");
         return blocked(detail, "egress-timeout");
       }
       throw err;

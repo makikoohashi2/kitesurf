@@ -151,6 +151,36 @@ test("numeric names do not override form indices", async ({ page }) => {
   expect(result).toEqual([true, true]);
 }, 60_000);
 
+test("underscore names resolve controls without replacing internal form members", async ({
+  page,
+}) => {
+  await setContent(
+    page,
+    `<!doctype html><title>t</title><form id="f"><input name="__EVENTTARGET" value="go"><input name="_field" value="x"><input name="_id"></form>`,
+  );
+  const result = await page.evaluate(() => {
+    const form = document.getElementById("f") as HTMLFormElement;
+    const target = Reflect.get(form, "__EVENTTARGET") as HTMLInputElement | undefined;
+    const field = Reflect.get(form, "_field") as HTMLInputElement | undefined;
+    const clobbered = Reflect.get(form, "_id") === form.querySelector('[name="_id"]');
+    form.appendChild(document.createElement("input"));
+    return {
+      target: target?.value,
+      field: field?.value,
+      clobbered,
+      unknown: typeof Reflect.get(form, "__missingControl"),
+      length: form.elements.length,
+    };
+  });
+  expect(result).toEqual({
+    target: "go",
+    field: "x",
+    clobbered: false,
+    unknown: "undefined",
+    length: 4,
+  });
+}, 60_000);
+
 test("detached forms keep externally associated controls", async ({ page }) => {
   await setContent(page, "<!doctype html><title>t</title>");
   const result = await page.evaluate(() => {

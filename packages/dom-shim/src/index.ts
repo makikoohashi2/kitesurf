@@ -303,7 +303,7 @@ const buildDocumentBody = function buildDocument(dom: DomHandle, opts: BuildDocu
     const isForm = localName === "form";
     // HTMLFormElement is [LegacyOverrideBuiltIns]: a listed control's id or name reads ahead of
     // the form's own members, so form.id can be an <input name="id">. Indices, tree members and
-    // names starting with "_" stay ours. The fast path reads id from the tree, so it skips forms.
+    // existing internal "_" members stay ours. The fast path reads id from the tree, skipping forms.
     // https://html.spec.whatwg.org/#the-form-element
     let namesSeq = -1;
     let names = new Set<string>();
@@ -328,7 +328,7 @@ const buildDocumentBody = function buildDocument(dom: DomHandle, opts: BuildDocu
     };
     // The control or RadioNodeList a supported name reads, else undefined.
     const namedOverride = (t: Element, prop: string, receiver: unknown): unknown => {
-      if (resolving || prop === "" || prop[0] === "_") return undefined;
+      if (resolving || prop === "" || (prop[0] === "_" && prop in t)) return undefined;
       if (isArrayIndex(prop) || isFormOwnMember(prop)) return undefined;
       resolving = true;
       try {

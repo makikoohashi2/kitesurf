@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 // https://opensource.org/licenses/Apache-2.0
 
+import { DEFAULT_USER_AGENT } from "@kitesurf/dom-shim/user-agent";
 import { expect, test } from "../harness";
 
 test("network-ua-override-demo", async ({ page }) => {
@@ -40,9 +41,6 @@ test("network-ua-override-demo", async ({ page }) => {
     doc: globalThis.__ks_doc_headers,
     nav: navigator.userAgent,
   }));
-  expect(
-    typeof gen3.doc["user-agent"] === "string" && gen3.doc["user-agent"].includes("Mozilla/5.0"),
-    "doc fetch UA back to default",
-  ).toBeTruthy();
-  expect(gen3.nav, "navigator.userAgent back to default").toBe("Kitesurf/0.0.1");
+  expect(gen3.doc["user-agent"], "doc fetch UA back to default").toBe(DEFAULT_USER_AGENT);
+  expect(gen3.nav, "navigator.userAgent back to default").toBe(DEFAULT_USER_AGENT);
 });

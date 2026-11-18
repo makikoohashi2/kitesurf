@@ -11,6 +11,7 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./user-agent": "./src/user-agent.ts",
     "./html-encoding": "./src/html-encoding.ts",
     "./contract": "./src/contract.ts"
   },

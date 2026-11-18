@@ -4,6 +4,7 @@
 
 // Applies page-origin, cookie, CORS, interception, and egress rules to page requests.
 
+import { DEFAULT_USER_AGENT } from "@kitesurf/dom-shim/user-agent";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { SessionOutbound, SessionOutboundRequest } from "@kitesurf/jsrpc-types/page-script";
 import {
@@ -642,7 +643,7 @@ export class SandboxOutbound extends WorkerEntrypoint<SandboxOutboundEnv, Outbou
       // A browser always sends Origin, "null" for an opaque document, and its User-Agent.
       const wsOrigin = sealed ? props.pageOrigin : pageOrigin;
       wsHeaders.set("Origin", wsOrigin || "null");
-      wsHeaders.set("User-Agent", request.headers.get("user-agent") || BROWSER_UA);
+      wsHeaders.set("User-Agent", request.headers.get("user-agent") || DEFAULT_USER_AGENT);
       const wsCookieKey = sealed
         ? props.cookieKey || connectionId
         : request.headers.get("x-kitesurf-cookie-key") || connectionId;
@@ -901,7 +902,7 @@ export class SandboxOutbound extends WorkerEntrypoint<SandboxOutboundEnv, Outbou
               unsafeNames: authorUnsafeHeaders,
               requestOrigin: pageOrigin || "null",
               credentialsInclude,
-              userAgent: forwardRequest.headers.get("user-agent") ?? BROWSER_UA,
+              userAgent: forwardRequest.headers.get("user-agent") ?? DEFAULT_USER_AGENT,
               referer: forwardRequest.headers.get("referer"),
               signal: pfSignal,
               cacheable: !hostEgress,
@@ -1470,10 +1471,6 @@ function checkCorsResponse(
   }
 }
 
-const BROWSER_UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-  "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
-
 const POST_DATA_CAP_BYTES = 8 * 1024 * 1024;
 
 async function readBodyCapped(req: Request, capBytes: number): Promise<string | undefined> {
@@ -1543,7 +1540,7 @@ export function buildForwardRequest({
     if (pageRealm && isForbiddenRequestHeader(lower, v)) continue;
     headers.set(k, v);
   }
-  if (!headers.has("user-agent")) headers.set("user-agent", BROWSER_UA);
+  if (!headers.has("user-agent")) headers.set("user-agent", DEFAULT_USER_AGENT);
   if (!headers.has("accept")) headers.set("accept", defaultAcceptFor(resourceType));
   // The fetch shim adds Origin where Fetch requires it (non-GET, cross-origin); the
   // gateway keeps the header but supplies the committed value, not the page's.

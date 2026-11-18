@@ -4,6 +4,7 @@
 
 // Routes Worker HTTP requests, discovery endpoints, RBI assets, and CDP WebSocket upgrades.
 
+import { DEFAULT_USER_AGENT } from "@kitesurf/dom-shim/user-agent";
 import { handleWebSocket } from "./cdp/connection.ts";
 import { traceSpan } from "./tracing.ts";
 import { armLocalTracing } from "./tracing-local.ts";
@@ -30,8 +31,7 @@ export { PageScriptTail } from "./eval/page-script-tail.ts";
 const VERSION_INFO = {
   Browser: "Kitesurf/0.0.1",
   "Protocol-Version": "1.3",
-  "User-Agent":
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+  "User-Agent": DEFAULT_USER_AGENT,
   "V8-Version": "12.0.0",
   "WebKit-Version": "537.36",
 };

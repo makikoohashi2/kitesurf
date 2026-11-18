@@ -7,6 +7,7 @@
 // returns { window (Proxy), windowObj (target), Window (proto anchor) }.
 // Named-globals helpers live at module scope.
 
+import { DEFAULT_USER_AGENT } from "./user-agent.js";
 import { makeStyleDeclaration, type StyleDeclarationBackend } from "./style-declaration.js";
 import {
   ksGlobal,
@@ -484,7 +485,7 @@ function buildWindow(document: DocumentImpl) {
   };
 
   const navigator = {
-    userAgent: (opts && typeof opts.userAgent === "string" && opts.userAgent) || "Kitesurf/0.0.1",
+    userAgent: (opts && typeof opts.userAgent === "string" && opts.userAgent) || DEFAULT_USER_AGENT,
     appName: "Kitesurf",
     appVersion: "0.0.1",
     platform: "Cloudflare Workers",

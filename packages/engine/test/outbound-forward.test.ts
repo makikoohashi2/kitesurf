@@ -59,6 +59,12 @@ describe("Authorization same-origin gate", () => {
 });
 
 describe("header shaping basics", () => {
+  it("identifies default outbound requests as Kitesurf", () => {
+    expect(forward("https://cdn.example.com/script.js", {}).headers.get("user-agent")).toBe(
+      "Kitesurf/0.0.1",
+    );
+  });
+
   it("strips x-kitesurf-* plumbing headers", () => {
     const original = new Request("https://cdn.example.com/x.js", {
       headers: { "x-kitesurf-resource-type": "Script", "x-real": "keep" },
@@ -73,7 +79,7 @@ describe("header shaping basics", () => {
     expect(req.headers.get("x-real")).toBe("keep");
   });
 
-  it("injects browser-shaped defaults without clobbering explicit values", () => {
+  it("keeps explicit identities while supplying other defaults", () => {
     const original = new Request("https://cdn.example.com/x.js", {
       headers: { "user-agent": "custom-ua" },
     });

@@ -4,6 +4,7 @@
 
 // Routes CDP commands to target sessions, domain handlers, and host extensions.
 
+import { DEFAULT_USER_AGENT } from "@kitesurf/dom-shim/user-agent";
 import type { BrowserState, CdpRequest, CdpResponse, EventEmitter, TargetState } from "./types.ts";
 import type { RequestBlocker } from "../request-blocker.ts";
 import { CDP_COMMAND_UNHANDLED } from "./types.ts";
@@ -84,8 +85,7 @@ export async function dispatch(ctx: DispatchCtx, req: CdpRequest): Promise<CdpRe
           protocolVersion: "1.3",
           product: "Chrome/145.0.0.0",
           revision: "@kitesurf",
-          userAgent:
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+          userAgent: DEFAULT_USER_AGENT,
           jsVersion: "12.0.0",
         },
         sessionId: req.sessionId,

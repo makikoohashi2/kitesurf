@@ -4,6 +4,7 @@
 
 // Implements CDP Page commands and coordinates navigation, frames, and screencasts.
 
+import { DEFAULT_USER_AGENT } from "@kitesurf/dom-shim/user-agent";
 import type Protocol from "devtools-protocol";
 import { decodeHtmlBytes } from "@kitesurf/dom-shim/html-encoding";
 import {
@@ -841,8 +842,7 @@ export async function handlePage(
 
       try {
         const reqHeaders: Record<string, string> = {
-          "user-agent":
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+          "user-agent": DEFAULT_USER_AGENT,
           accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         };
         // A page-started navigation carries the initiating document's origin,
@@ -5168,8 +5168,7 @@ async function inlineStylesheets(
       const reqHeaders = {
         accept: "text/css,*/*;q=0.1",
         "x-kitesurf-page-origin": pageOrigin,
-        "user-agent":
-          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+        "user-agent": DEFAULT_USER_AGENT,
       };
       const reqId =
         tracker && loaderId && frameId

@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 // https://opensource.org/licenses/Apache-2.0
 
+import { DEFAULT_USER_AGENT } from "@kitesurf/dom-shim/user-agent";
 import { expect, test } from "../harness";
 import expectedCss from "../../fixtures-worker/assets/external-sheet.css?raw";
 
@@ -36,10 +37,9 @@ test("network-stylesheet-headers-demo", async ({ page }) => {
     `no x-kitesurf-* headers leak into Network.requestWillBeSent (leaked: ${JSON.stringify(kitesurfKeys)})`,
   ).toBeTruthy();
 
-  expect(
-    typeof lower["user-agent"] === "string" && lower["user-agent"].includes("Mozilla"),
-    "user-agent header is set to a real browser-shaped UA",
-  ).toBeTruthy();
+  expect(lower["user-agent"], "stylesheet uses the shared engine identity").toBe(
+    DEFAULT_USER_AGENT,
+  );
   expect(lower["accept"], "accept header is the stylesheet-specific value").toBe(
     "text/css,*/*;q=0.1",
   );

@@ -106,6 +106,7 @@ import {
   originOf,
 } from "./frames.ts";
 import { emitChildFrameAttachAndStart } from "./iframe-events.ts";
+import { selectDiagnosticResponseHeaders } from "./diagnostic-response-headers.ts";
 import {
   consoleEntryToCdpEvent,
   exceptionEntryToCdpEvent,
@@ -1023,14 +1024,18 @@ export async function handlePage(
           }
           resp = walk.response;
           currentUrl = walk.finalUrl;
-          ctx.browser.networkEvents.operationDiagnostics.headers(requestId, resp.status);
+          ctx.browser.networkEvents.operationDiagnostics.headers(
+            requestId,
+            resp.status,
+            resp.headers,
+          );
           if (diagnostics) {
             diagnostics.finalUrl = navigationDiagnosticUrl(currentUrl);
             if (/^https?:/.test(diagnostics.finalUrl)) {
               diagnostics.status = resp.status;
               diagnostics.httpSuccess = resp.ok;
               diagnostics.headersReceivedMs = hopHeadersReceivedMs;
-              diagnostics.responseHeaders = navigationResponseHeaders(resp.headers);
+              diagnostics.responseHeaders = selectDiagnosticResponseHeaders(resp.headers);
             }
           }
           // A cross-origin hop cuts the Referer down to its origin, so the
@@ -2693,28 +2698,6 @@ function newNavigationDiagnostics(url: string): Protocol.Page.NavigationDiagnost
     navigationCompleted: false,
     httpSuccess: null,
   };
-}
-
-const NAVIGATION_RESPONSE_HEADERS = [
-  "server",
-  "via",
-  "request-id",
-  "x-request-id",
-  "x-correlation-id",
-  "cf-ray",
-  "x-amzn-requestid",
-  "x-amz-request-id",
-  "x-amz-cf-id",
-  "x-ms-request-id",
-];
-
-function navigationResponseHeaders(headers: Headers): Record<string, string> {
-  const selected: Record<string, string> = {};
-  for (const name of NAVIGATION_RESPONSE_HEADERS) {
-    const value = headers.get(name);
-    if (value) selected[name] = value;
-  }
-  return selected;
 }
 
 // Chromium includes isDownload in its reply. Keep the diagnostic payload opt-in.

@@ -3,6 +3,10 @@
 // https://opensource.org/licenses/Apache-2.0
 
 import type Protocol from "devtools-protocol";
+import {
+  selectDiagnosticResponseHeaders,
+  type DiagnosticHeaderSource,
+} from "./diagnostic-response-headers.ts";
 
 const DEFAULT_DURATION_MS = 5_000;
 const MAX_DURATION_MS = 30_000;
@@ -67,6 +71,13 @@ function summarizeUrl(raw: string, approved: ReadonlySet<string>): string {
   } catch {
     return "(unparseable-url)";
   }
+}
+
+function recordResponse(request: Request, status: number, headers?: DiagnosticHeaderSource): void {
+  request.status = status;
+  if (!headers || request.responseHeaders !== undefined) return;
+  const selected = selectDiagnosticResponseHeaders(headers);
+  if (Object.keys(selected).length > 0) request.responseHeaders = selected;
 }
 
 interface Capture {
@@ -250,28 +261,40 @@ export class OperationDiagnostics {
     url: string,
     type: string,
     status: number,
+    headers: DiagnosticHeaderSource,
   ): void {
-    if (!this.openRequest(requestId)) return;
-    this.complete(requestId, status);
-    this.capture?.currentRequests.delete(requestId);
+    const capture = this.capture;
+    const request = this.openRequest(requestId);
+    if (!capture || !request) return;
+    request.redirectedTo = summarizeUrl(url, capture.publicUrls);
+    this.complete(requestId, { status, headers });
+    capture.currentRequests.delete(requestId);
     this.begin(requestId, frameId, method, url, type);
   }
 
-  headers(requestId: string, status: number): void {
+  headers(requestId: string, status: number, headers?: DiagnosticHeaderSource): void {
     const request = this.openRequest(requestId);
-    if (request) request.status = status;
+    if (request) recordResponse(request, status, headers);
   }
 
   complete(
     requestId: string,
-    status: number,
-    failed = false,
-    bodyCompletionUnverified = false,
+    response: {
+      status: number;
+      headers?: DiagnosticHeaderSource;
+      errorText?: string;
+      bodyCompletionUnverified?: boolean;
+    },
   ): void {
     const request = this.openRequest(requestId);
     if (!request) return;
-    request.status = status;
-    request.state = failed ? "failed" : bodyCompletionUnverified ? "responseReceived" : "completed";
+    recordResponse(request, response.status, response.headers);
+    request.state =
+      response.errorText !== undefined
+        ? "failed"
+        : response.bodyCompletionUnverified
+          ? "responseReceived"
+          : "completed";
   }
 
   fail(requestId: string, timedOut: boolean): void {

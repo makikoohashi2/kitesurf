@@ -89,11 +89,31 @@ documents.all("/form-echo", async (c) => {
 </body></html>`);
 });
 
-documents.post("/operation-result.html", async (c) => {
+documents.all("/operation-result.html", async (c) => {
   await c.req.arrayBuffer();
   return c.html(
     "<!doctype html><title>operation-result</title>",
     c.req.query("status") === "403" ? 403 : 200,
+    {
+      Server: "fixture-server",
+      Via: "1.1 fixture-proxy",
+      "X-Request-ID": "fixture-final-id",
+      "CF-Ray": "x".repeat(257),
+      "Set-Cookie": "test=operation-dummy-secret-cookie",
+      Authorization: "Bearer operation-dummy-secret-authorization",
+      "WWW-Authenticate": 'Basic realm="operation-dummy-secret-realm"',
+      "X-Private": "operation-dummy-secret-other",
+    },
+  );
+});
+
+documents.post("/operation-redirect.html", async (c) => {
+  await c.req.arrayBuffer();
+  c.header("Server", "fixture-redirect-server");
+  c.header("X-Request-ID", "fixture-redirect-id");
+  return c.redirect(
+    "/__fixtures/operation-result.html?status=403&token=operation-dummy-secret#private",
+    302,
   );
 });
 

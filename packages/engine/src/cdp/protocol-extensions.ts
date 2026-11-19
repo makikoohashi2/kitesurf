@@ -226,6 +226,8 @@ declare module "devtools-protocol" {
         method: string;
         url: string;
         status: number | null;
+        responseHeaders?: Record<string, string>;
+        redirectedTo?: string;
         state: "pending" | "responseReceived" | "completed" | "failed" | "timedOut";
       }
 

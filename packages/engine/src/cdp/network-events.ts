@@ -359,6 +359,7 @@ export class NetworkEventTracker {
       opts.newUrl,
       opts.type,
       opts.status,
+      opts.responseHeaders,
     );
     const prevUrl = rec?.url ?? opts.newUrl;
     if (rec) rec.url = opts.newUrl;
@@ -417,12 +418,7 @@ export class NetworkEventTracker {
   }
 
   completeRequest(requestId: Protocol.Network.RequestId, opts: CompleteRequestOpts): void {
-    this.operationDiagnostics.complete(
-      requestId,
-      opts.status,
-      opts.errorText !== undefined,
-      opts.bodyCompletionUnverified,
-    );
+    this.operationDiagnostics.complete(requestId, opts);
     const rec = this.records.get(requestId);
     if (!rec) {
       return;

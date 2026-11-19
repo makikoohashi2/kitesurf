@@ -34,7 +34,16 @@ test("operation observation bounds records and retains failures without raw erro
       });
     tracker.failRequest(request("https://example.test/fail", "GET"), "Error with fixture-secret");
     tracker.failRequest(request("https://example.test/timeout", "GET"), "net::ERR_TIMED_OUT");
-    for (let index = 2; index < start.maxRecords; index++) {
+    const pending = request("https://example.test/headers-only", "GET");
+    observation.headers(
+      pending,
+      403,
+      new Headers({
+        "X-Request-ID": "test-response-id",
+        "Set-Cookie": "fixture-secret",
+      }),
+    );
+    for (let index = 3; index < start.maxRecords; index++) {
       request("https://example.test/pending", "GET");
     }
     request("https://example.test/post", "POST");
@@ -45,6 +54,14 @@ test("operation observation bounds records and retains failures without raw erro
     expect(result.startedAt + 50).toBe(result.endedAt);
     expect(result.requests).toHaveLength(start.maxRecords);
     expect(result.requests.slice(0, 2).map((entry) => entry.state)).toEqual(["failed", "timedOut"]);
+    expect(result.requests[2]).toEqual({
+      type: "Fetch",
+      method: "GET",
+      url: "https://example.test",
+      status: 403,
+      state: "pending",
+      responseHeaders: { "x-request-id": "test-response-id" },
+    });
     expect(result.start.url).toBe("https://example.test");
     expect(result.droppedRecords).toBe(2);
     expect(result.postStartObserved).toBe(true);

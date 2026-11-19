@@ -9,10 +9,16 @@ import { engine, expect, test } from "./harness";
 const fixture = "https://ks.invalid/__fixtures/";
 const pageUrl = fixture + "policy-doc.html";
 const resultUrl = fixture + "operation-result.html";
+const redirectUrl = fixture + "operation-redirect.html";
+const responseHeaders = {
+  server: "fixture-server",
+  via: "1.1 fixture-proxy",
+  "x-request-id": "fixture-final-id",
+};
 const fetchUrl = fixture + "echo-headers.json";
 const slowUrl = fixture + "slow-document.html";
 const secret = "operation-dummy-secret";
-const publicUrls = [pageUrl, resultUrl, fetchUrl, slowUrl];
+const publicUrls = [pageUrl, resultUrl, redirectUrl, fetchUrl, slowUrl];
 
 async function connect() {
   const { ws, next } = await openCdpWireSession(engine);
@@ -105,16 +111,21 @@ test("reports a dispatched click and a classified exception without a POST", asy
   }
 }, 60_000);
 
-test.for([200, 403])(
-  "retains POST status %i through document navigation",
+test.for([
+  { status: 200, redirect: false },
+  { status: 403, redirect: false },
+  { status: 403, redirect: true },
+])(
+  "retains response identifiers through document navigation (HTTP $status, redirect=$redirect)",
   { timeout: 60_000 },
-  async (status) => {
+  async ({ status, redirect }) => {
     const connection = await connect();
     try {
+      const action = redirect ? redirectUrl : resultUrl;
       const { send } = await attach(
         connection,
         `
-      <form method="post" action="/__fixtures/operation-result.html?status=${status}&token=${secret}#private">
+      <form method="post" action="${action}?status=${status}&token=${secret}#private">
         <input name="user" value="${secret}-user">
         <input type="password" name="password" value="${secret}-password">
         <button type="submit">Submit fixture</button>
@@ -126,7 +137,30 @@ test.for([200, 403])(
       expect(result.completedClicks).toBe(1);
       expect(result.completedDocumentNavigations).toBe(1);
       expect(result.requests).toEqual([
-        { type: "Document", method: "POST", url: resultUrl, status, state: "completed" },
+        ...(redirect
+          ? [
+              {
+                type: "Document",
+                method: "POST",
+                url: redirectUrl,
+                status: 302,
+                state: "completed",
+                redirectedTo: resultUrl,
+                responseHeaders: {
+                  server: "fixture-redirect-server",
+                  "x-request-id": "fixture-redirect-id",
+                },
+              },
+            ]
+          : []),
+        {
+          type: "Document",
+          method: redirect ? "GET" : "POST",
+          url: resultUrl,
+          status,
+          state: "completed",
+          responseHeaders,
+        },
       ]);
       expect(result.postStartObserved).toBe(true);
       expect(result.start.formCount).toBe(1);

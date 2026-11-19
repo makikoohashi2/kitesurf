@@ -169,8 +169,15 @@ unverified.
 
 Reports contain HTTP origins by default. Pass exact, known public paths and
 titles to include them. Title values containing unexpected page data are omitted.
+Each observed HTTP response can include `responseHeaders` with `Server`, `Via`,
+and the request ID headers allowed by the navigation diagnostics. Values over
+256 characters are omitted. For a followed document redirect, the response
+includes a redacted `redirectedTo` URL. Each observed hop keeps its own
+headers. Header names and values alone cannot establish who caused a refusal.
+
 The report excludes URL credentials, queries and fragments, request and response
-bodies, input values, headers, cookies, and exception messages or stacks.
+bodies, input values, cookie and authentication headers, and exception messages
+or stacks.
 
 ## Use Chrome DevTools
 

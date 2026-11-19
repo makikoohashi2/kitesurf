@@ -985,6 +985,10 @@ export class SandboxOutbound extends WorkerEntrypoint<SandboxOutboundEnv, Outbou
       throw err;
     }
 
+    if (requestId && tracker) {
+      tracker.operationDiagnostics.headers(requestId, resp.status, resp.headers);
+    }
+
     if (jar && sendCredentials) {
       try {
         const setCookies =
@@ -1244,7 +1248,6 @@ export class SandboxOutbound extends WorkerEntrypoint<SandboxOutboundEnv, Outbou
     }
 
     if (requestId && tracker) {
-      tracker.operationDiagnostics.headers(requestId, resp.status);
       const mimeType = resp.headers.get("content-type") ?? "";
       const contentLength = Number(resp.headers.get("content-length") ?? "0") || 0;
       const trimmedMime = (mimeType.split(";")[0] ?? "").trim() || "application/octet-stream";

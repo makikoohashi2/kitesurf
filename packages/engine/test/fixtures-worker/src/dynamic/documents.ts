@@ -89,6 +89,14 @@ documents.all("/form-echo", async (c) => {
 </body></html>`);
 });
 
+documents.post("/operation-result.html", async (c) => {
+  await c.req.arrayBuffer();
+  return c.html(
+    "<!doctype html><title>operation-result</title>",
+    c.req.query("status") === "403" ? 403 : 200,
+  );
+});
+
 documents.all("/oversize-doc.html", (c) => {
   const headers: Record<string, string> = { "content-type": "text/html; charset=utf-8" };
   const declared = c.req.query("declared");

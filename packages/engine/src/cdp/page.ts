@@ -1023,6 +1023,7 @@ export async function handlePage(
           }
           resp = walk.response;
           currentUrl = walk.finalUrl;
+          ctx.browser.networkEvents.operationDiagnostics.headers(requestId, resp.status);
           if (diagnostics) {
             diagnostics.finalUrl = navigationDiagnosticUrl(currentUrl);
             if (/^https?:/.test(diagnostics.finalUrl)) {
@@ -2300,6 +2301,9 @@ async function pushNavigateToPageScriptInner(
         );
       }
       const navPromise = ps.navigate(navigateSourceOf(html), url, {
+        operationExceptionDeadline: ctx.browser.networkEvents.operationDiagnostics.deadlineFor(
+          target.frameId,
+        ),
         cookies: initialCookies,
         ...(traced ? { traced: true } : {}),
         expectIframeInstalls: owesIframeInstalls,
@@ -2645,6 +2649,11 @@ function emitCapturedExceptions(
   if (!entries || entries.length === 0) return;
   const sessions = targetSessions(target, sessionId);
   for (const entry of entries) {
+    ctx.browser.networkEvents.operationDiagnostics.exception(
+      target.frameId,
+      entry.timestamp,
+      entry.className,
+    );
     const id = ++exceptionIdSeq;
     const ev = exceptionEntryToCdpEvent(entry, id, target.defaultContextId || 1);
     for (const s of sessions) {
@@ -2870,6 +2879,7 @@ export function emitFrameDclComplete(
     }
   }
   if (frame.parentFrameId === null) {
+    ctx.browser.networkEvents.operationDiagnostics.documentReady(target.frameId, frame.loaderId);
     for (const s of sessions) {
       ctx.emit({
         method: "Page.domContentEventFired",
@@ -3089,19 +3099,30 @@ function scheduleLoadCompleteEmit(
   ctx.ctx.waitUntil(work);
 }
 
-const backgroundDrainInFlight = new WeakSet<TargetState>();
+const backgroundDrainInFlight = new WeakMap<TargetState, Promise<void>>();
 
-export function pumpBackgroundEvents(ctx: DispatchCtx, target: TargetState): void {
+export function pumpBackgroundEvents(
+  ctx: DispatchCtx,
+  target: TargetState,
+  force = false,
+): Promise<void> | undefined {
   if (target.type !== "page") return;
-  if (target.domEnabledSessions.size === 0) return;
+  const emitRaw = target.domEnabledSessions.size > 0;
+  const diagnostics = ctx.browser.networkEvents.operationDiagnostics;
+  if (!force && !emitRaw && !diagnostics.watches(target.frameId)) return;
   const pageScript = target.pageScript;
   if (!pageScript || typeof pageScript.drainConsole !== "function") return;
-  if (backgroundDrainInFlight.has(target)) return;
-  backgroundDrainInFlight.add(target);
+  const inFlight = backgroundDrainInFlight.get(target);
+  if (inFlight) return inFlight;
   const work = (async () => {
     try {
       const summary = await pageScript.drainConsole();
       if (ctx.browser.wsClosing) return;
+      if (target.pageScript !== pageScript || !emitRaw) {
+        for (const entry of summary.exceptions ?? []) {
+          diagnostics.exception(target.frameId, entry.timestamp, entry.className);
+        }
+      }
       if (target.pageScript !== pageScript) return;
       // target.url already names the next document while a navigate fetches it.
       const cookieUrl = target.pageScriptUrl;
@@ -3110,6 +3131,7 @@ export function pumpBackgroundEvents(ctx: DispatchCtx, target: TargetState): voi
           jarForTarget(ctx, target).setFromDocumentCookie(cookieUrl, raw);
         }
       }
+      if (!emitRaw) return;
       if (summary.console && summary.console.length > 0) {
         emitCapturedConsole(ctx, target, summary.console, undefined);
       }
@@ -3128,7 +3150,9 @@ export function pumpBackgroundEvents(ctx: DispatchCtx, target: TargetState): voi
       backgroundDrainInFlight.delete(target);
     }
   })();
+  backgroundDrainInFlight.set(target, work);
   ctx.ctx.waitUntil(work);
+  return work;
 }
 
 const PUMP_TASKS_TIMEOUT_MS = 5_000;
@@ -4227,8 +4251,18 @@ export function installUpstreamEventHandler(
   );
   const loaderId = target.loaderId;
   stub.setUpstreamEventHandler((event, params) => {
-    if (target.navigateGeneration !== generation) return;
     if (ctx.browser.wsClosing) return;
+    if (event === "kitesurf.operationException") {
+      if (typeof params.timestamp === "number" && typeof params.kind === "string") {
+        ctx.browser.networkEvents.operationDiagnostics.exception(
+          target.frameId,
+          params.timestamp,
+          params.kind,
+        );
+      }
+      return;
+    }
+    if (target.navigateGeneration !== generation) return;
     if (event === "kitesurf.diag") {
       target.diagSpans?.handle(params);
       return;

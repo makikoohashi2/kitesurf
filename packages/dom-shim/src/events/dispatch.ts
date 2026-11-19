@@ -35,6 +35,7 @@ import {
 import { noteListenerRemoved, noteListenerType } from "../transitions.js";
 import { __ks_setEventTrusted, __ks_trustedFlags } from "../trust.js";
 import { MAX_SHADOW_ROOT_HOPS } from "../constants.js";
+import { operationExceptionReportingActive, reportOperationException } from "../internal-state.js";
 
 let contentAttrHydrator: ((target: Idl.EventTarget, type: string) => void) | null = null;
 const eventsInFlight = new WeakSet<object>();
@@ -342,6 +343,7 @@ export function reportException(thrown: unknown): void {
   if (inErrorReportingMode) return;
   inErrorReportingMode = true;
   try {
+    reportOperationException(thrown);
     const messageValue: unknown = thrown
       ? Reflect.get(Object(thrown), "message", thrown)
       : undefined;
@@ -634,15 +636,18 @@ export function invokeListeners(
       threw = true;
     }
     if (threw) {
+      const observingException = operationExceptionReportingActive();
       reportException(thrown);
-      try {
-        console.error(
-          "[kitesurf] event listener for",
-          event.type,
-          "threw:",
-          errorStackOrMessage(thrown),
-        );
-      } catch {}
+      if (!observingException) {
+        try {
+          console.error(
+            "[kitesurf] event listener for",
+            event.type,
+            "threw:",
+            errorStackOrMessage(thrown),
+          );
+        } catch {}
+      }
     }
     setEventInPassiveListener(event, prevPassive);
   }

@@ -963,6 +963,16 @@ export class SandboxOutbound extends WorkerEntrypoint<SandboxOutboundEnv, Outbou
       }
     } catch (err) {
       clearTimeout(egressAbortTimer);
+      if (egressAbortCtl.signal.aborted) {
+        const docTracker =
+          props?.topLevelDocument && props.interceptConnectionId
+            ? getTracker(props.interceptConnectionId)
+            : undefined;
+        if (docTracker && props?.mainLoaderId) {
+          docTracker.operationDiagnostics.fail(props.mainLoaderId, true);
+        }
+        if (requestId) tracker?.operationDiagnostics.fail(requestId, true);
+      }
       if (requestId && tracker) {
         tracker.failRequest(requestId, err instanceof Error ? err.message : String(err));
       }
@@ -1234,6 +1244,7 @@ export class SandboxOutbound extends WorkerEntrypoint<SandboxOutboundEnv, Outbou
     }
 
     if (requestId && tracker) {
+      tracker.operationDiagnostics.headers(requestId, resp.status);
       const mimeType = resp.headers.get("content-type") ?? "";
       const contentLength = Number(resp.headers.get("content-length") ?? "0") || 0;
       const trimmedMime = (mimeType.split(";")[0] ?? "").trim() || "application/octet-stream";
@@ -1273,9 +1284,11 @@ export class SandboxOutbound extends WorkerEntrypoint<SandboxOutboundEnv, Outbou
             headers: headersToRecord(resp.headers),
             mimeType: trimmedMime,
             bodyLength: contentLength,
+            bodyCompletionUnverified: resp.body !== null,
           });
           resp = replay;
         } catch {
+          tracker.operationDiagnostics.fail(requestId, false);
           tracker.completeRequest(requestId, {
             url: request.url,
             status: resp.status,
@@ -1283,6 +1296,7 @@ export class SandboxOutbound extends WorkerEntrypoint<SandboxOutboundEnv, Outbou
             headers: headersToRecord(resp.headers),
             mimeType: trimmedMime,
             bodyLength: contentLength,
+            bodyCompletionUnverified: resp.body !== null,
           });
         }
       } else {
@@ -1293,6 +1307,7 @@ export class SandboxOutbound extends WorkerEntrypoint<SandboxOutboundEnv, Outbou
           headers: headersToRecord(resp.headers),
           mimeType: trimmedMime,
           bodyLength: contentLength,
+          bodyCompletionUnverified: resp.body !== null,
         });
       }
     }

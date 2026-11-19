@@ -131,6 +131,47 @@ URL credentials, queries, fragments, cookies and authentication headers. It
 includes `Server`, `Via` and supported request ID headers only when present in
 the final response. These headers alone cannot establish who refused a request.
 
+## Observe an operation over CDP
+
+Start and stop the observation on the same page session. In browser mode,
+attach a single flattened CDP session to the page target. In page mode, use
+the page WebSocket directly.
+
+```js
+await cdp.send("Kitesurf.startOperationDiagnostics", {
+  durationMs: 5000,
+  publicTitles: ["Local form", "Local result"],
+  publicUrls: ["https://example.test/form", "https://example.test/result"],
+});
+await cdp.send("Input.dispatchMouseEvent", {
+  type: "mousePressed", button: "left", x: 40, y: 25, clickCount: 1,
+});
+await cdp.send("Input.dispatchMouseEvent", {
+  type: "mouseReleased", button: "left", x: 40, y: 25, clickCount: 1,
+});
+const report = await cdp.send("Kitesurf.stopOperationDiagnostics", { waitMs: 500 });
+```
+
+The report separates dispatched primary clicks, observed POST starts, HTTP
+responses, and documents that reached DOMContentLoaded. A completed click can
+coincide with an exception and no observed POST. A 2xx response alone does not
+establish that an application accepted the operation. Requests still in flight
+are `pending`. For an unbuffered response, `responseReceived` means the headers
+were observed and body completion is unverified.
+
+Observation is limited to the top-level page and its tracked requests and
+exceptions. It uses one observation per connection, for up to 30 seconds,
+with up to 2 seconds of optional wait at stop. At most 100 request and
+exception records are kept. `droppedRecords` counts records beyond this limit.
+An expired report can be collected for up to 60 seconds. Attaching a second
+session to the page cancels the observation. Activity past the cutoff is
+unverified.
+
+Reports contain HTTP origins by default. Pass exact, known public paths and
+titles to include them. Title values containing unexpected page data are omitted.
+The report excludes URL credentials, queries and fragments, request and response
+bodies, input values, headers, cookies, and exception messages or stacks.
+
 ## Use Chrome DevTools
 
 With `pnpm run dev`, open `http://127.0.0.1:8787/` in Chrome. Enter a URL to

@@ -205,6 +205,7 @@ export async function handleTarget(ctx: DispatchCtx, req: CdpRequest): Promise<u
       const target = ctx.browser.targets.get(id);
       if (target) {
         const sessionId = makeSessionId();
+        ctx.browser.networkEvents.operationDiagnostics?.discardTarget(target.frameId);
         target.sessions.add(sessionId);
         ctx.browser.networkEvents.setTargetAttribution(
           target.frameId,
@@ -376,6 +377,7 @@ export async function closeTargetInternal(ctx: DispatchCtx, id: string): Promise
     );
   }
   if (target) {
+    ctx.browser.networkEvents.operationDiagnostics?.discardTarget(target.frameId);
     // Puppeteer resolves page.close() on Target.detachedFromTarget, before targetDestroyed.
     detachSessions(ctx, target.sessions, id);
     ctx.browser.networkEvents.deleteTargetAttribution(target.frameId);
@@ -498,6 +500,7 @@ export function createPageTarget(
 
 export function autoAttachTarget(ctx: DispatchCtx, target: TargetState): string {
   const sessionId = makeSessionId();
+  ctx.browser.networkEvents.operationDiagnostics?.discardTarget(target.frameId);
   target.sessions.add(sessionId);
   ctx.browser.networkEvents.setTargetAttribution(
     target.frameId,

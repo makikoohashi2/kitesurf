@@ -176,6 +176,41 @@ export function sendUpstreamEvent(message: UpstreamMessage): void {
   }
 }
 
+let operationExceptionDeadline = 0;
+const OPERATION_ERROR_NAMES = new Set([
+  "Error",
+  "TypeError",
+  "ReferenceError",
+  "SyntaxError",
+  "RangeError",
+  "EvalError",
+  "URIError",
+  "AggregateError",
+  "AbortError",
+  "TimeoutError",
+]);
+
+export function setOperationExceptionDeadline(deadline: number): void {
+  operationExceptionDeadline = deadline;
+}
+
+export function operationExceptionReportingActive(): boolean {
+  return operationExceptionDeadline > 0 && Date.now() <= operationExceptionDeadline;
+}
+
+export function reportOperationException(thrown: unknown): void {
+  const timestamp = Date.now();
+  if (operationExceptionDeadline === 0 || timestamp > operationExceptionDeadline) return;
+  let kind = "Other";
+  try {
+    if (thrown && typeof thrown === "object") {
+      const name: unknown = Reflect.get(thrown, "name");
+      if (typeof name === "string" && OPERATION_ERROR_NAMES.has(name)) kind = name;
+    }
+  } catch {}
+  sendUpstreamEvent({ event: "kitesurf.operationException", params: { timestamp, kind } });
+}
+
 export function registerUpstreamSender(sender: UpstreamSender): void {
   upstreamSender = sender;
 }

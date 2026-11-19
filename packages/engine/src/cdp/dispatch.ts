@@ -72,6 +72,38 @@ export interface DispatchCtx {
   analytics: KitesurfAnalytics;
 }
 
+const PAGE_COMMAND_DOMAINS = new Set([
+  "Page",
+  "Runtime",
+  "DOM",
+  "CSS",
+  "Input",
+  "Debugger",
+  "Emulation",
+  "WebMCP",
+]);
+
+function enforceOperationScope(ctx: DispatchCtx, req: CdpRequest, domain: string): void {
+  const diagnostics = ctx.browser.networkEvents.operationDiagnostics;
+  if (!diagnostics?.observedFrameId) return;
+  if (
+    req.method === "Kitesurf.startOperationDiagnostics" ||
+    req.method === "Kitesurf.stopOperationDiagnostics"
+  )
+    return;
+  if (!PAGE_COMMAND_DOMAINS.has(domain) && domain !== "Kitesurf") return;
+  const pages = [...ctx.browser.targets.values()].filter((target) => target.type === "page");
+  const explicit: unknown =
+    domain === "Kitesurf" && req.params && Reflect.get(req.params, "targetId");
+  const target =
+    typeof explicit === "string"
+      ? ctx.browser.targets.get(explicit)
+      : ((domain !== "Kitesurf"
+          ? pages.find((page) => req.sessionId && page.sessions.has(req.sessionId))
+          : undefined) ?? pages[0]);
+  if (target) diagnostics.discardForOtherSession(target.frameId, req.sessionId);
+}
+
 export async function dispatch(ctx: DispatchCtx, req: CdpRequest): Promise<CdpResponse> {
   const [domain] = req.method.split(".", 1);
 
@@ -109,6 +141,7 @@ export async function dispatch(ctx: DispatchCtx, req: CdpRequest): Promise<CdpRe
         return { id: req.id, result: result ?? {}, sessionId: req.sessionId };
       }
     }
+    enforceOperationScope(ctx, req, domain ?? "");
     let result: unknown;
     switch (domain) {
       case "Target":

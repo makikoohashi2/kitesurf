@@ -309,6 +309,10 @@ export interface QueryDomMethods {
     };
     result: { found: boolean; scrolled?: boolean };
   };
+  getOperationPageState: {
+    args: { publicTitles: string[]; exceptionDeadline: number };
+    result: { url: string; title: string | null; formCount: number | null };
+  };
   getPageState: {
     args: EmptyArgs;
     result: { seq?: number; scrollX?: number; scrollY?: number; href?: string; title?: string };

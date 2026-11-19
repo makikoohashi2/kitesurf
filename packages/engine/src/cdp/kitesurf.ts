@@ -15,6 +15,7 @@ import {
   type QueryDomMethod,
 } from "./page-session.ts";
 import { engineMemoryBreakdown } from "./target.ts";
+import { pumpBackgroundEvents } from "./page.ts";
 import { sceneStreamCommand } from "./scene-stream.ts";
 import { sceneHostCommand } from "./scene-host.ts";
 import {
@@ -91,6 +92,44 @@ function pageTargetFor(
 
 function noPageScript(target: TargetState | null): string {
   return target ? "no PageScript" : "target not found";
+}
+
+const OPERATION_SNAPSHOT_WAIT_MS = 250;
+
+function boundedOperationRead<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), OPERATION_SNAPSHOT_WAIT_MS);
+    void promise.then(resolve, () => resolve(fallback)).finally(() => clearTimeout(timer));
+  });
+}
+
+function operationTarget(ctx: DispatchCtx, sessionId: string | undefined): TargetState {
+  const target =
+    sessionId === undefined
+      ? ctx.browser.connectionMode === "page"
+        ? firstPageTarget(ctx)
+        : null
+      : [...ctx.browser.targets.values()].find(
+          (item) => item.type === "page" && item.sessions.has(sessionId),
+        );
+  if (!target) throw new Error("Use the page's CDP session to observe an operation");
+  return target;
+}
+
+function readOperationPage(target: TargetState, publicTitles: string[], exceptionDeadline: number) {
+  const fallback = {
+    url: target.pageScriptUrl ?? "about:blank",
+    title: null,
+    formCount: null,
+  };
+  const pageScript = target.pageScript;
+  if (!pageScript) return Promise.resolve(fallback);
+  return boundedOperationRead(
+    stubQueryDom(pageScript, "getOperationPageState", { publicTitles, exceptionDeadline }).then(
+      (page) => (target.pageScript === pageScript && page?.url ? page : fallback),
+    ),
+    fallback,
+  );
 }
 
 // paintDamageSince always takes a node to leave out; this external id is never minted.
@@ -286,6 +325,44 @@ export async function handleKitesurf(ctx: DispatchCtx, req: CdpRequest): Promise
         return cdpResult(req, { pending: false, error: "target not found" });
       }
       return cdpResult(req, (await ask(target)) ?? {});
+    }
+
+    case "Kitesurf.startOperationDiagnostics": {
+      const target = operationTarget(ctx, req.sessionId);
+      const exclusive = () =>
+        ctx.browser.targets.get(target.targetId) === target &&
+        (req.sessionId === undefined
+          ? target.sessions.size === 0
+          : target.sessions.size === 1 && target.sessions.has(req.sessionId));
+      if (!exclusive())
+        throw new Error("Operation observation requires a single session on the page");
+      return cdpResult(
+        req,
+        await ctx.browser.networkEvents.operationDiagnostics.start(
+          target.frameId,
+          req.sessionId,
+          req.params,
+          (titles, deadline) => readOperationPage(target, titles, deadline),
+          exclusive,
+        ),
+      );
+    }
+
+    case "Kitesurf.stopOperationDiagnostics": {
+      const target = operationTarget(ctx, req.sessionId);
+      return cdpResult(
+        req,
+        await ctx.browser.networkEvents.operationDiagnostics.stop(
+          target.frameId,
+          req.sessionId,
+          req.params?.waitMs,
+          () =>
+            boundedOperationRead(
+              pumpBackgroundEvents(ctx, target, true) ?? Promise.resolve(),
+              undefined,
+            ),
+        ),
+      );
     }
 
     case "Kitesurf.getPageState": {

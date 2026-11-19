@@ -275,6 +275,9 @@ export async function handleInput(
           const evName = primary ? "click" : "auxclick";
           assertExpected(target);
           const clickResult = await inputPageScript.dispatchMouseEvent(evName, clickInit);
+          if (primary && clickResult.dispatched) {
+            ctx.browser.networkEvents.operationDiagnostics.click(target.frameId, req.sessionId);
+          }
           emitConsole(ctx, clickResult.console, req.sessionId);
           emitMutations(ctx, target, clickResult.cdpMutations);
           if (primary && clickCount === 2) {

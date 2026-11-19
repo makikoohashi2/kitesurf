@@ -51,6 +51,7 @@ export interface NavigateSource {
 }
 
 export interface NavigateOptions {
+  operationExceptionDeadline?: number;
   cookies?: string;
   connectionId?: string;
   mainFrameId?: string;
@@ -233,6 +234,7 @@ export interface KeyDispatchReply extends JsWindowDrain {
 }
 
 export interface MouseDispatchReply extends KeyDispatchReply {
+  dispatched?: boolean;
   hashNavigateTo?: string | null;
 }
 
@@ -355,6 +357,7 @@ export type PageScriptEntrypoint = PageScriptSession & {
 export type PageScriptEntrypointStub = Fetcher<PageScriptEntrypoint>;
 
 export interface UpstreamEvents {
+  "kitesurf.operationException": { timestamp: number; kind: string };
   "kitesurf.bindingCalled": { name: string; payload: string };
   "kitesurf.diag": { ev: "start" | "end"; op: string; t: number };
   "kitesurf.formSubmitNavigate": NavigatePost;

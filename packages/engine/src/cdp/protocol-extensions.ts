@@ -215,6 +215,56 @@ declare module "devtools-protocol" {
         | Record<string, never>;
 
       /** Page position and the DOM mutation counter, read without a full DOM walk. */
+      interface OperationPageSnapshot {
+        url: string;
+        title: string | null;
+        formCount: number | null;
+      }
+
+      interface OperationRequest {
+        type: "Document" | "Fetch" | "XHR" | "Other";
+        method: string;
+        url: string;
+        status: number | null;
+        state: "pending" | "responseReceived" | "completed" | "failed" | "timedOut";
+      }
+
+      interface OperationException {
+        timestamp: number;
+        kind: string;
+      }
+
+      interface StartOperationDiagnosticsRequest {
+        durationMs?: number;
+        publicTitles?: string[];
+        publicUrls?: string[];
+      }
+
+      interface StartOperationDiagnosticsResponse {
+        start: OperationPageSnapshot;
+        startedAt: number;
+        durationMs: number;
+        maxRecords: number;
+      }
+
+      interface StopOperationDiagnosticsRequest {
+        waitMs?: number;
+      }
+
+      interface StopOperationDiagnosticsResponse {
+        start: OperationPageSnapshot;
+        end: OperationPageSnapshot;
+        startedAt: number;
+        endedAt: number;
+        requests: OperationRequest[];
+        exceptions: OperationException[];
+        completedClicks: number;
+        completedDocumentNavigations: number;
+        postStartObserved: boolean;
+        droppedRecords: number;
+        laterActivity: "unverified";
+      }
+
       interface GetPageStateResponse {
         /** Increments on every DOM mutation; compare two reads to detect a change. */
         seq?: integer;
@@ -441,6 +491,14 @@ declare module "devtools-protocol/types/protocol-mapping" {
       "Kitesurf.hasPendingCriticalResources": {
         paramsType: [Protocol.Kitesurf.TargetScopedRequest?];
         returnType: Protocol.Kitesurf.HasPendingCriticalResourcesResponse;
+      };
+      "Kitesurf.startOperationDiagnostics": {
+        paramsType: [Protocol.Kitesurf.StartOperationDiagnosticsRequest?];
+        returnType: Protocol.Kitesurf.StartOperationDiagnosticsResponse;
+      };
+      "Kitesurf.stopOperationDiagnostics": {
+        paramsType: [Protocol.Kitesurf.StopOperationDiagnosticsRequest?];
+        returnType: Protocol.Kitesurf.StopOperationDiagnosticsResponse;
       };
       "Kitesurf.getPageState": {
         paramsType: [Protocol.Kitesurf.TargetScopedRequest?];

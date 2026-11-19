@@ -6,6 +6,7 @@
 
 import type Protocol from "devtools-protocol";
 import type { CdpEvent, EventEmitter } from "./types.ts";
+import { OperationDiagnostics } from "./operation-diagnostics.ts";
 
 export type ResourceType = Protocol.Network.ResourceType;
 
@@ -34,6 +35,7 @@ export interface CompleteRequestOpts {
   fromDiskCache?: boolean;
   timestamp?: Protocol.Network.MonotonicTime;
   errorText?: string;
+  bodyCompletionUnverified?: boolean;
 }
 
 interface RequestRecord {
@@ -78,6 +80,7 @@ export function isolateRetainedBodyBytesTotal(): number {
 }
 
 export class NetworkEventTracker {
+  readonly operationDiagnostics = new OperationDiagnostics();
   private nextSeq = 1;
   private records = new Map<string, RequestRecord>();
   private order: string[] = [];
@@ -187,6 +190,7 @@ export class NetworkEventTracker {
   }
 
   forgetSession(sessionId: string): void {
+    this.operationDiagnostics.forgetSession(sessionId);
     this.enabledSessions.delete(sessionId);
     this.logEnabledSessions.delete(sessionId);
     this.recomputeBufferLimits();
@@ -264,6 +268,7 @@ export class NetworkEventTracker {
 
   beginRequest(opts: BeginRequestOpts): Protocol.Network.RequestId {
     const requestId = opts.requestId ?? this.newRequestId();
+    this.operationDiagnostics.begin(requestId, opts.frameId, opts.method, opts.url, opts.type);
     const ts = opts.timestamp ?? this.monotonicSeconds();
     // Snapshot recipients at request start; later target changes cannot retarget its events.
     const sessionIds = opts.sessionIds
@@ -347,6 +352,14 @@ export class NetworkEventTracker {
     },
   ): void {
     const rec = this.records.get(requestId);
+    this.operationDiagnostics.redirect(
+      requestId,
+      opts.frameId,
+      opts.method,
+      opts.newUrl,
+      opts.type,
+      opts.status,
+    );
     const prevUrl = rec?.url ?? opts.newUrl;
     if (rec) rec.url = opts.newUrl;
     const sessionIds = rec?.sessionIds ?? [];
@@ -404,6 +417,12 @@ export class NetworkEventTracker {
   }
 
   completeRequest(requestId: Protocol.Network.RequestId, opts: CompleteRequestOpts): void {
+    this.operationDiagnostics.complete(
+      requestId,
+      opts.status,
+      opts.errorText !== undefined,
+      opts.bodyCompletionUnverified,
+    );
     const rec = this.records.get(requestId);
     if (!rec) {
       return;
@@ -579,6 +598,7 @@ export class NetworkEventTracker {
     errorText: string,
     blockedReason?: Protocol.Network.BlockedReason,
   ): void {
+    this.operationDiagnostics.fail(requestId, errorText === "net::ERR_TIMED_OUT");
     const rec = this.records.get(requestId);
     if (!rec) return;
     if (!rec.completed) {
@@ -662,6 +682,7 @@ export class NetworkEventTracker {
   }
 
   dispose(): void {
+    this.operationDiagnostics.dispose();
     this.disposed = true;
     for (const rec of this.records.values()) this.dropBody(rec);
     this.records.clear();

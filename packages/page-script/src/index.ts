@@ -86,6 +86,7 @@ import {
   type BundleDiag,
   type IframePost,
   sendUpstreamEvent,
+  setOperationExceptionDeadline,
   takeDocumentReopened,
   registerUpstreamSender,
   clearUpstreamSender,
@@ -3745,6 +3746,7 @@ export class PageScript extends WorkerEntrypoint implements PageScriptSession {
 
     resetConsoleBuffer();
     resetExceptionBuffer();
+    setOperationExceptionDeadline(navigateOptions?.operationExceptionDeadline ?? 0);
 
     const useBundle =
       startupHasClassicRegular || startupHasClassicAsync || startupModuleScriptCount > 0;
@@ -4730,6 +4732,7 @@ export class PageScript extends WorkerEntrypoint implements PageScriptSession {
       };
     }
     let defaultPrevented = false;
+    let dispatched = false;
     let navigateTo: string | null = null;
     let hashNavigateTo: string | null = null;
     let navigatePost: ReturnType<typeof takePendingSubmitNav> = null;
@@ -4947,6 +4950,7 @@ export class PageScript extends WorkerEntrypoint implements PageScriptSession {
       }
 
       const allowed = compatibilityMouseAllowed ? __ks_dispatchTrusted(targetEl, event) : true;
+      dispatched = compatibilityMouseAllowed;
       if (compatibilityMouseAllowed || eventType !== "mousedown") {
         defaultPrevented = !allowed;
       }
@@ -5099,6 +5103,7 @@ export class PageScript extends WorkerEntrypoint implements PageScriptSession {
       cookieWrites: state.drainCookieWrites(),
       cdpMutations: drainCdpMutations(),
       defaultPrevented,
+      dispatched,
       navigateTo,
       navigatePost,
       hashNavigateTo,
@@ -5400,6 +5405,8 @@ export class PageScript extends WorkerEntrypoint implements PageScriptSession {
         return queryDomWebMcpRead(method, queryArgs);
       case "webmcpCallTool":
         return await queryDomWebMcpCall(queryArgs);
+      case "getOperationPageState":
+        return queryDomOperationPageState(queryArgs);
       case "getPageState":
         return queryDomPageState();
       case "markPaintDamage":
@@ -7322,6 +7329,26 @@ function rectArg(v: unknown): { x: number; y: number; width: number; height: num
   return x !== null && y !== null && width !== null && height !== null
     ? { x, y, width, height }
     : null;
+}
+
+function queryDomOperationPageState(
+  args: Record<string, unknown>,
+): QueryDomResult<"getOperationPageState"> {
+  setOperationExceptionDeadline(
+    typeof args.exceptionDeadline === "number" ? args.exceptionDeadline : 0,
+  );
+  const document = state.document;
+  const title = ksGlobal.document?.title;
+  return {
+    url: state.documentUrl,
+    title:
+      typeof title === "string" &&
+      Array.isArray(args.publicTitles) &&
+      args.publicTitles.includes(title)
+        ? title
+        : null,
+    formCount: document?.querySelectorAll("form").length ?? null,
+  };
 }
 
 function queryDomPageState(): QueryDomResult<"getPageState"> {

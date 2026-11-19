@@ -15,6 +15,8 @@ export {
   getInternalState,
   getInternals,
   sendUpstreamEvent,
+  reportOperationException,
+  operationExceptionReportingActive,
   registerUpstreamSender,
   clearUpstreamSender,
   takeDocumentReopened,

@@ -11,7 +11,12 @@ import type {
   PackedException,
   PackedResult,
 } from "./shared.ts";
-import type { QueryDomArgs, QueryDomMethod, QueryDomResult } from "./query-dom.ts";
+import type {
+  BeforeClickSnapshot,
+  QueryDomArgs,
+  QueryDomMethod,
+  QueryDomResult,
+} from "./query-dom.ts";
 import type { RenderPort } from "./page-renderer.ts";
 import type { WorkerEventParams, WorkerNavigatorInfo } from "./dedicated-worker.ts";
 import type { SandboxRestrictions } from "./sandbox.ts";
@@ -235,6 +240,7 @@ export interface KeyDispatchReply extends JsWindowDrain {
 
 export interface MouseDispatchReply extends KeyDispatchReply {
   dispatched?: boolean;
+  beforeClick?: BeforeClickSnapshot;
   hashNavigateTo?: string | null;
 }
 
@@ -280,7 +286,11 @@ export interface PageScriptSession {
   runScript(scriptId: string, opts: EvalOptions): Promise<RunScriptReply>;
   /** Runs one typed DOM operation in this generation; await dependent operations in order. */
   queryDom<M extends QueryDomMethod>(method: M, args: QueryDomArgs<M>): Promise<QueryDomResult<M>>;
-  dispatchMouseEvent(type: string, init: MouseEventInit): Promise<MouseDispatchReply>;
+  dispatchMouseEvent(
+    type: string,
+    init: MouseEventInit,
+    captureTarget?: boolean,
+  ): Promise<MouseDispatchReply>;
   dispatchKeyEvent(type: string, init: KeyEventInit): Promise<KeyDispatchReply>;
 }
 
@@ -314,7 +324,7 @@ export interface PageScriptWireParams {
   compileScript: { expression: string; sourceURL: string; persistScript: boolean };
   runScript: { scriptId: string; opts?: EvalOptions };
   queryDom: { method: QueryDomMethod; args?: QueryDomArgs<QueryDomMethod> };
-  dispatchMouseEvent: { type: string; init: MouseEventInit };
+  dispatchMouseEvent: { type: string; init: MouseEventInit; captureTarget?: boolean };
   dispatchKeyEvent: { type: string; init: KeyEventInit };
 }
 

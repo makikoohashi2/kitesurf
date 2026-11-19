@@ -501,8 +501,12 @@ export class PageScriptRpcSession implements PageScriptStub {
   dispatchMouseEvent(
     type: string,
     init: MouseEventInit,
+    captureTarget?: boolean,
   ): ReturnType<PageScriptStub["dispatchMouseEvent"]> {
-    return this.call("dispatchMouseEvent", { type, init });
+    return this.call(
+      "dispatchMouseEvent",
+      captureTarget ? { type, init, captureTarget } : { type, init },
+    );
   }
 
   dispatchKeyEvent(

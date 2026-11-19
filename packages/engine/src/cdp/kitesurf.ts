@@ -5,6 +5,7 @@
 // Handles Kitesurf CDP methods for scene transfer, engine settings, and diagnostics.
 
 import type { Protocol } from "devtools-protocol";
+import type { InspectInteractionTargetResult } from "@kitesurf/jsrpc-types/query-dom";
 import type { DispatchCtx } from "./dispatch.ts";
 import type { CdpMethod, CdpRequest, CdpResultOf, TargetState } from "./types.ts";
 import { CDP_COMMAND_UNHANDLED } from "./types.ts";
@@ -325,6 +326,59 @@ export async function handleKitesurf(ctx: DispatchCtx, req: CdpRequest): Promise
         return cdpResult(req, { pending: false, error: "target not found" });
       }
       return cdpResult(req, (await ask(target)) ?? {});
+    }
+
+    case "Kitesurf.inspectInteractionTarget": {
+      const params = req.params;
+      const x = params?.x;
+      const y = params?.y;
+      if (
+        typeof x !== "number" ||
+        !Number.isFinite(x) ||
+        typeof y !== "number" ||
+        !Number.isFinite(y)
+      ) {
+        throw new Error("Expected finite viewport coordinates");
+      }
+      const backendNodeId = params?.backendNodeId;
+      if (
+        backendNodeId !== undefined &&
+        (typeof backendNodeId !== "number" ||
+          !Number.isSafeInteger(backendNodeId) ||
+          backendNodeId < 1)
+      ) {
+        throw new Error("Expected a positive backend node ID");
+      }
+      const target = operationTarget(ctx, req.sessionId);
+      const pageScript = target.pageScript;
+      const generation = target.navigateGeneration;
+      const unavailable: InspectInteractionTargetResult = {
+        documentId: null,
+        hit: "unknown",
+        hitTarget: null,
+        requestedTarget: null,
+        requestedHit: backendNodeId === undefined ? "notRequested" : "unknown",
+      };
+      if (!pageScript) return cdpResult(req, unavailable);
+      const documentId =
+        typeof params?.documentId === "string" && params.documentId.length <= 36
+          ? params.documentId
+          : undefined;
+      const result = await boundedOperationRead(
+        stubQueryDom(pageScript, "inspectInteractionTarget", {
+          x,
+          y,
+          ...(backendNodeId === undefined ? {} : { backendNodeId }),
+          ...(documentId === undefined ? {} : { documentId }),
+        }),
+        null,
+      );
+      return cdpResult(
+        req,
+        target.pageScript === pageScript && target.navigateGeneration === generation
+          ? (result ?? unavailable)
+          : unavailable,
+      );
     }
 
     case "Kitesurf.startOperationDiagnostics": {

@@ -12,6 +12,7 @@ export {
   cancelModelContextTool,
   setModelContextTaskScheduler,
   setControlValueAsUser,
+  isDisabledInFormContext,
   decodeHtmlBytes,
   parseUrlForNode,
   setWrapperSweepScheduler,

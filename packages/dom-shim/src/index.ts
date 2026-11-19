@@ -957,6 +957,7 @@ export {
   setModelContextTaskScheduler,
 } from "./model-context.js";
 export { setControlValueAsUser } from "./user-control.js";
+export { isDisabledInFormContext } from "./element/index.js";
 export { decodeHtmlBytes } from "./html-encoding.js";
 export { parseUrlForNode } from "./text-encoding.js";
 export {

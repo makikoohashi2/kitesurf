@@ -8,6 +8,11 @@ import type {
   FontFaces as PageScriptFontFaces,
   PageScriptGauges,
 } from "@kitesurf/jsrpc-types/query-dom";
+import type {
+  BeforeClickSnapshot,
+  InspectInteractionTargetArgs,
+  InspectInteractionTargetResult,
+} from "@kitesurf/jsrpc-types/query-dom";
 import "devtools-protocol/types/protocol-mapping";
 
 declare module "devtools-protocol" {
@@ -261,6 +266,7 @@ declare module "devtools-protocol" {
         requests: OperationRequest[];
         exceptions: OperationException[];
         completedClicks: number;
+        beforeClicks: BeforeClickSnapshot[];
         completedDocumentNavigations: number;
         postStartObserved: boolean;
         droppedRecords: number;
@@ -493,6 +499,10 @@ declare module "devtools-protocol/types/protocol-mapping" {
       "Kitesurf.hasPendingCriticalResources": {
         paramsType: [Protocol.Kitesurf.TargetScopedRequest?];
         returnType: Protocol.Kitesurf.HasPendingCriticalResourcesResponse;
+      };
+      "Kitesurf.inspectInteractionTarget": {
+        paramsType: [InspectInteractionTargetArgs];
+        returnType: InspectInteractionTargetResult;
       };
       "Kitesurf.startOperationDiagnostics": {
         paramsType: [Protocol.Kitesurf.StartOperationDiagnosticsRequest?];

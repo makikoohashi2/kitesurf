@@ -161,8 +161,8 @@ were observed and body completion is unverified.
 
 Observation is limited to the top-level page and its tracked requests and
 exceptions. It uses one observation per connection, for up to 30 seconds,
-with up to 2 seconds of optional wait at stop. At most 100 request and
-exception records are kept. `droppedRecords` counts records beyond this limit.
+with up to 2 seconds of optional wait at stop. At most 100 request,
+exception, and pre-click records are kept. `droppedRecords` counts records beyond this limit.
 An expired report can be collected for up to 60 seconds. Attaching a second
 session to the page cancels the observation. Activity past the cutoff is
 unverified.
@@ -178,6 +178,28 @@ headers. Header names and values alone cannot establish who caused a refusal.
 The report excludes URL credentials, queries and fragments, request and response
 bodies, input values, cookie and authentication headers, and exception messages
 or stacks.
+
+## Inspect a click target
+
+Call `Kitesurf.inspectInteractionTarget` on the page's CDP session with
+`{ x: 40, y: 25 }`. These are the viewport CSS pixel coordinates used by
+`Input.dispatchMouseEvent`. The query uses the mouse hit test and can report
+the hit element's tag and backend node ID, viewport rectangle and overlap,
+computed styles, and supported HTML form disabled state. A null field means
+the value is unavailable or inapplicable.
+
+To inspect a specific element, also pass its CDP `backendNodeId` and the
+`documentId` returned by a query in the same document. The hit element and
+requested element are reported separately, with the hit relationship.
+A reference from a previous document is stale.
+
+An active operation report can include `beforeClicks` from primary click
+dispatches. These entries describe the hit and dispatch target before the
+event handler runs. They share the 100-record cap with requests and
+exceptions. The query does not dispatch input or scroll the page. Layout,
+hit testing, and disabled state do not establish whether a handler ran or a
+form submitted. The query covers the attached page's layout and can report
+the owning frame element for embedded pages.
 
 ## Use Chrome DevTools
 

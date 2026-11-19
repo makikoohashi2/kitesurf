@@ -43,16 +43,29 @@ test("operation observation bounds records and retains failures without raw erro
         "Set-Cookie": "fixture-secret",
       }),
     );
-    for (let index = 3; index < start.maxRecords; index++) {
+    const beforeClick = {
+      documentId: "test-document",
+      timestamp: start.startedAt,
+      x: 40,
+      y: 25,
+      hit: "none" as const,
+      hitTarget: null,
+      dispatchTarget: null,
+    };
+    observation.captureClick(frameId, "owner")?.(true, beforeClick);
+    for (let index = 4; index < start.maxRecords; index++) {
       request("https://example.test/pending", "GET");
     }
     request("https://example.test/post", "POST");
     observation.exception(frameId, start.startedAt, "arbitrary fixture-secret");
+    observation.captureClick(frameId, "owner")?.(true, beforeClick);
     await vi.advanceTimersByTimeAsync(start.durationMs + 1);
     request("https://example.test/late", "POST");
     const result = await observation.stop(frameId, "owner", 500_000, async () => {});
     expect(result.startedAt + 50).toBe(result.endedAt);
-    expect(result.requests).toHaveLength(start.maxRecords);
+    expect(result.requests).toHaveLength(start.maxRecords - 1);
+    expect(result.beforeClicks).toEqual([beforeClick]);
+    expect(result.completedClicks).toBe(2);
     expect(result.requests.slice(0, 2).map((entry) => entry.state)).toEqual(["failed", "timedOut"]);
     expect(result.requests[2]).toEqual({
       type: "Fetch",
@@ -63,7 +76,7 @@ test("operation observation bounds records and retains failures without raw erro
       responseHeaders: { "x-request-id": "test-response-id" },
     });
     expect(result.start.url).toBe("https://example.test");
-    expect(result.droppedRecords).toBe(2);
+    expect(result.droppedRecords).toBe(3);
     expect(result.postStartObserved).toBe(true);
     expect(JSON.stringify(result)).not.toMatch(/fixture-secret|private|fragment/);
   } finally {

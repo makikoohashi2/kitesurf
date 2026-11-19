@@ -274,10 +274,18 @@ export async function handleInput(
           const primary = p.button === "left" || p.button === undefined;
           const evName = primary ? "click" : "auxclick";
           assertExpected(target);
-          const clickResult = await inputPageScript.dispatchMouseEvent(evName, clickInit);
-          if (primary && clickResult.dispatched) {
-            ctx.browser.networkEvents.operationDiagnostics.click(target.frameId, req.sessionId);
-          }
+          const reportClick = primary
+            ? ctx.browser.networkEvents.operationDiagnostics.captureClick(
+                target.frameId,
+                req.sessionId,
+              )
+            : undefined;
+          const clickResult = await inputPageScript.dispatchMouseEvent(
+            evName,
+            clickInit,
+            !!reportClick,
+          );
+          reportClick?.(clickResult.dispatched === true, clickResult.beforeClick);
           emitConsole(ctx, clickResult.console, req.sessionId);
           emitMutations(ctx, target, clickResult.cdpMutations);
           if (primary && clickCount === 2) {

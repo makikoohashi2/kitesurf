@@ -54,7 +54,12 @@ import type { RenderPort as RenderPortContract } from "@kitesurf/jsrpc-types/pag
 import type { WorkerEventParams } from "@kitesurf/jsrpc-types/dedicated-worker";
 import { deliverWorkerEvent } from "./dedicated-worker.ts";
 import type {
+  BeforeClickSnapshot,
   FormStateSnapshot,
+  InspectInteractionTargetResult,
+  InteractionElement,
+  InteractionHit,
+  InteractionNodeReference,
   PendingImageDrain,
   QueryDomArgs,
   QueryDomMethod,
@@ -409,6 +414,7 @@ import {
   listModelContextTools,
   stopModelContextToolWatch,
   setControlValueAsUser,
+  isDisabledInFormContext,
   decodeHtmlBytes,
   parseUrlForNode,
   detachedWrapperStats,
@@ -2530,12 +2536,12 @@ function mouseTargetAtPoint(
   eventType: string,
   clientX: number,
   clientY: number,
-  event: MouseInputEvent,
-): MouseTarget | null {
+  event?: MouseInputEvent,
+): MouseTarget | null | undefined {
   let targetEl: MouseTarget | null = null;
   try {
     const paint = ensurePaintDom();
-    if (!paint) return null;
+    if (!paint) return undefined;
     try {
       if (typeof paint.resolveLayout === "function") paint.resolveLayout();
     } catch {}
@@ -2544,13 +2550,16 @@ function mouseTargetAtPoint(
       paintHitId = paint.elementFromPoint(clientX + state.scrollX, clientY + state.scrollY);
     } catch {
       invalidatePaintDom();
-      paintHitId = -1;
+      return undefined;
     }
-    if (typeof paintHitId === "number" && paintHitId >= 0) {
+    if (typeof paintHitId !== "number" || !Number.isFinite(paintHitId)) return undefined;
+    if (paintHitId >= 0) {
       targetEl = state.resolveNodeId(paintHitId);
+      if (!targetEl) return undefined;
     }
     if (
       targetEl &&
+      event &&
       eventType !== "mousemove" &&
       eventType !== "wheel" &&
       typeof paint.pseudoKindAtPoint === "function" &&
@@ -2564,9 +2573,114 @@ function mouseTargetAtPoint(
       } catch {}
     }
   } catch {
-    targetEl = null;
+    return undefined;
   }
   return targetEl;
+}
+
+let interactionDocumentId: string | undefined;
+const mintInteractionDocumentId = crypto.randomUUID.bind(crypto);
+const interactionTimestamp = Date.now.bind(Date);
+const FORM_DISABLED_TAGS = new Set(["BUTTON", "INPUT", "SELECT", "TEXTAREA", "FIELDSET"]);
+
+function nodeInteractionReference(
+  node: ShimElement | null | undefined,
+): InteractionNodeReference | null {
+  if (!node || node.nodeType !== 1) return null;
+  const { _id, tagName } = node;
+  return typeof _id === "number" &&
+    Number.isSafeInteger(_id) &&
+    _id > 0 &&
+    typeof tagName === "string" &&
+    tagName.length <= 128 &&
+    /^[a-z][a-z0-9:._-]*$/i.test(tagName)
+    ? { backendNodeId: _id, tagName }
+    : null;
+}
+
+function interactionHit(hit: MouseTarget | null | undefined, reference: unknown): InteractionHit {
+  return hit === null ? "none" : reference ? "hit" : "unknown";
+}
+
+function describeInteractionElement(
+  node: ShimElement | null | undefined,
+): InteractionElement | null {
+  const reference = nodeInteractionReference(node);
+  if (!node || !reference) return null;
+  const range = readViewportRect(reference.backendNodeId);
+  const rect =
+    range && [range.x, range.y, range.width, range.height].every(Number.isFinite)
+      ? { x: range.x, y: range.y, width: range.width, height: range.height }
+      : null;
+  const viewportW = state.paintViewportW;
+  const viewportH = state.paintViewportH;
+  const styles = computedStyleForAuthId(reference.backendNodeId);
+  const style = (name: string) => {
+    const value = styles?.find((property) => property.name === name)?.value;
+    return typeof value === "string" && value.length <= 64 && /^[a-z-]+(?: [a-z-]+)*$/i.test(value)
+      ? value
+      : null;
+  };
+  return {
+    ...reference,
+    rect,
+    overlapsViewport:
+      rect && viewportW > 0 && viewportH > 0
+        ? rect.width > 0 &&
+          rect.height > 0 &&
+          rect.x < viewportW &&
+          rect.y < viewportH &&
+          rect.x + rect.width > 0 &&
+          rect.y + rect.height > 0
+        : null,
+    display: style("display"),
+    visibility: style("visibility"),
+    pointerEvents: style("pointer-events"),
+    disabled:
+      node.namespaceURI === "http://www.w3.org/1999/xhtml" &&
+      FORM_DISABLED_TAGS.has(reference.tagName.toUpperCase())
+        ? isDisabledInFormContext(node)
+        : null,
+  };
+}
+
+function inspectInteractionTarget(args: Record<string, unknown>): InspectInteractionTargetResult {
+  const hit =
+    typeof args.x === "number" && typeof args.y === "number"
+      ? mouseTargetAtPoint("click", args.x, args.y)
+      : undefined;
+  const documentId = state.document
+    ? (interactionDocumentId ??= mintInteractionDocumentId())
+    : null;
+  const hitTarget = describeInteractionElement(hit);
+  const result: InspectInteractionTargetResult = {
+    documentId,
+    hit: interactionHit(hit, hitTarget),
+    hitTarget,
+    requestedTarget: null,
+    requestedHit: "notRequested",
+  };
+  if (typeof args.backendNodeId !== "number") return result;
+  if (documentId === null || args.documentId !== documentId) {
+    result.requestedHit = "stale";
+    return result;
+  }
+  const requestedNode = state.resolveNodeId(args.backendNodeId);
+  result.requestedTarget =
+    requestedNode === hit ? hitTarget : describeInteractionElement(requestedNode);
+  if (!result.requestedTarget || result.hit === "unknown") {
+    result.requestedHit = "unknown";
+  } else if (hit === null) {
+    result.requestedHit = "none";
+  } else {
+    result.requestedHit =
+      requestedNode === hit
+        ? "self"
+        : __ksAncestorChain(hit).includes(requestedNode)
+          ? "descendant"
+          : "other";
+  }
+  return result;
 }
 
 function readCaretPosition(value: unknown): { nodeId: number; offset: number } | null {
@@ -3144,6 +3258,7 @@ export class PageScript extends WorkerEntrypoint implements PageScriptSession {
     url: string,
     navigateOptions?: NavigateOptions,
   ): Promise<NavigateSummary> {
+    interactionDocumentId = undefined;
     state.navigateStarted = true;
     startCycleCollector();
     const safeUrl = typeof url === "string" ? url : "about:blank";
@@ -4722,7 +4837,11 @@ export class PageScript extends WorkerEntrypoint implements PageScriptSession {
     return { result };
   }
 
-  async dispatchMouseEvent(type: string, init: MouseEventInit): Promise<MouseDispatchReply> {
+  async dispatchMouseEvent(
+    type: string,
+    init: MouseEventInit,
+    captureTarget?: boolean,
+  ): Promise<MouseDispatchReply> {
     if (!state.document || typeof ksEventCtors.MouseEvent !== "function") {
       return {
         console: drainConsole(),
@@ -4733,6 +4852,7 @@ export class PageScript extends WorkerEntrypoint implements PageScriptSession {
     }
     let defaultPrevented = false;
     let dispatched = false;
+    let beforeClick: BeforeClickSnapshot | undefined;
     let navigateTo: string | null = null;
     let hashNavigateTo: string | null = null;
     let navigatePost: ReturnType<typeof takePendingSubmitNav> = null;
@@ -4773,7 +4893,8 @@ export class PageScript extends WorkerEntrypoint implements PageScriptSession {
         event = new (shimEventCtor("MouseEvent"))(eventType, eventInit);
       }
 
-      let targetEl = mouseTargetAtPoint(eventType, clientX, clientY, event);
+      const pointHit = mouseTargetAtPoint(eventType, clientX, clientY, event);
+      let targetEl = pointHit;
       if (!targetEl) {
         targetEl = state.document.body || state.document.documentElement || state.document;
       }
@@ -4949,6 +5070,25 @@ export class PageScript extends WorkerEntrypoint implements PageScriptSession {
         }
       }
 
+      if (
+        captureTarget &&
+        eventType === "click" &&
+        Number.isFinite(clientX) &&
+        Number.isFinite(clientY)
+      ) {
+        try {
+          const hitTarget = nodeInteractionReference(pointHit);
+          beforeClick = {
+            documentId: (interactionDocumentId ??= mintInteractionDocumentId()),
+            timestamp: interactionTimestamp(),
+            x: clientX,
+            y: clientY,
+            hit: interactionHit(pointHit, hitTarget),
+            hitTarget,
+            dispatchTarget: nodeInteractionReference(targetEl),
+          };
+        } catch {}
+      }
       const allowed = compatibilityMouseAllowed ? __ks_dispatchTrusted(targetEl, event) : true;
       dispatched = compatibilityMouseAllowed;
       if (compatibilityMouseAllowed || eventType !== "mousedown") {
@@ -5104,6 +5244,7 @@ export class PageScript extends WorkerEntrypoint implements PageScriptSession {
       cdpMutations: drainCdpMutations(),
       defaultPrevented,
       dispatched,
+      ...(beforeClick ? { beforeClick } : {}),
       navigateTo,
       navigatePost,
       hashNavigateTo,
@@ -5405,6 +5546,8 @@ export class PageScript extends WorkerEntrypoint implements PageScriptSession {
         return queryDomWebMcpRead(method, queryArgs);
       case "webmcpCallTool":
         return await queryDomWebMcpCall(queryArgs);
+      case "inspectInteractionTarget":
+        return inspectInteractionTarget(queryArgs);
       case "getOperationPageState":
         return queryDomOperationPageState(queryArgs);
       case "getPageState":
@@ -6451,6 +6594,24 @@ function readPdfMargin(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
 }
 
+function readViewportRect(id: number, paint = ensurePaintDom()) {
+  if (!paint) return null;
+  try {
+    const range: unknown = paint.getBoundingClientRect(id);
+    if (!isWasmBoundingRect(range)) return null;
+    return {
+      ...range,
+      x: (Number(range.x) || 0) - state.scrollX,
+      y: (Number(range.y) || 0) - state.scrollY,
+      width: range.width,
+      height: range.height,
+    };
+  } catch {
+    invalidatePaintDom();
+    return null;
+  }
+}
+
 type QueryDomPaintGeometryMethod = Extract<
   QueryDomMethod,
   "getComputedStyle" | "getRect" | "elementFromPoint"
@@ -6471,26 +6632,10 @@ function queryDomPaintGeometry(
     }
     case "getRect": {
       const id = numericNodeId(queryArgs);
-      if (id == null) return { rect: null } satisfies QueryDomResult<"getRect">;
-      const paint = ensurePaintDom();
-      if (!paint) return { rect: null } satisfies QueryDomResult<"getRect">;
-      try {
-        const range: unknown = paint.getBoundingClientRect(id);
-        if (!isWasmBoundingRect(range)) {
-          return { rect: null } satisfies QueryDomResult<"getRect">;
-        }
-        return {
-          rect: {
-            ...range,
-            x: (Number(range.x) || 0) - state.scrollX,
-            y: (Number(range.y) || 0) - state.scrollY,
-          },
-          rects: contentRectsFor(paint, id),
-        } satisfies QueryDomResult<"getRect">;
-      } catch {
-        invalidatePaintDom();
-        return { rect: null } satisfies QueryDomResult<"getRect">;
-      }
+      const paint = id == null ? null : ensurePaintDom();
+      if (id == null || !paint) return { rect: null } satisfies QueryDomResult<"getRect">;
+      const rect = readViewportRect(id, paint);
+      return rect ? { rect, rects: contentRectsFor(paint, id) } : { rect: null };
     }
     case "elementFromPoint": {
       const clientX = queryArgs && typeof queryArgs.x === "number" ? queryArgs.x : 0;

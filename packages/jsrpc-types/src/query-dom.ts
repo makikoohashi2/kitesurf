@@ -6,6 +6,47 @@
 
 import type { Protocol } from "devtools-protocol";
 
+export interface InteractionNodeReference {
+  backendNodeId: number;
+  tagName: string;
+}
+
+export type InteractionHit = "hit" | "none" | "unknown";
+
+export interface InteractionElement extends InteractionNodeReference {
+  rect: { x: number; y: number; width: number; height: number } | null;
+  overlapsViewport: boolean | null;
+  display: string | null;
+  visibility: string | null;
+  pointerEvents: string | null;
+  disabled: boolean | null;
+}
+
+export interface InspectInteractionTargetArgs {
+  x: number;
+  y: number;
+  backendNodeId?: number;
+  documentId?: string;
+}
+
+export interface InspectInteractionTargetResult {
+  documentId: string | null;
+  hit: InteractionHit;
+  hitTarget: InteractionElement | null;
+  requestedTarget: InteractionElement | null;
+  requestedHit: "notRequested" | "stale" | "self" | "descendant" | "other" | "none" | "unknown";
+}
+
+export interface BeforeClickSnapshot {
+  documentId: string;
+  timestamp: number;
+  x: number;
+  y: number;
+  hit: InteractionHit;
+  hitTarget: InteractionNodeReference | null;
+  dispatchTarget: InteractionNodeReference | null;
+}
+
 // Each nested gauge group comes from one producer and is null when unavailable.
 
 export interface PageScriptGauges {
@@ -308,6 +349,10 @@ export interface QueryDomMethods {
       rect?: { x: number; y: number; width: number; height: number };
     };
     result: { found: boolean; scrolled?: boolean };
+  };
+  inspectInteractionTarget: {
+    args: InspectInteractionTargetArgs;
+    result: InspectInteractionTargetResult;
   };
   getOperationPageState: {
     args: { publicTitles: string[]; exceptionDeadline: number };

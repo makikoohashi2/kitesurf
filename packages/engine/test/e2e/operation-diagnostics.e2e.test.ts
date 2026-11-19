@@ -131,9 +131,28 @@ test.for([
         <button type="submit">Submit fixture</button>
       </form>`,
       );
+      const original = await send("Kitesurf.inspectInteractionTarget", { x: 30, y: 25 });
       await observe(send);
       await click(send);
       const result = await send("Kitesurf.stopOperationDiagnostics", { waitMs: 500 });
+      expect(original.hitTarget?.tagName).toBe("BUTTON");
+      expect(result.beforeClicks).toEqual([
+        expect.objectContaining({
+          documentId: original.documentId,
+          x: 30,
+          y: 25,
+          hitTarget: expect.objectContaining({ backendNodeId: original.hitTarget?.backendNodeId }),
+        }),
+      ]);
+      const after = await send("Kitesurf.inspectInteractionTarget", {
+        x: 30,
+        y: 25,
+        backendNodeId: original.hitTarget!.backendNodeId,
+        documentId: original.documentId!,
+      });
+      expect(after.documentId).not.toBe(original.documentId);
+      expect(after.requestedHit).toBe("stale");
+      expect(after.requestedTarget).toBeNull();
       expect(result.completedClicks).toBe(1);
       expect(result.completedDocumentNavigations).toBe(1);
       expect(result.requests).toEqual([
@@ -223,18 +242,31 @@ test("returns without waiting for the network and excludes other pages and conne
       /No operation observation/,
     );
     await observe(remote.send);
+    const homeHit = await observed.send("Kitesurf.inspectInteractionTarget", { x: 30, y: 25 });
+    const foreignHit = await remote.send("Kitesurf.inspectInteractionTarget", {
+      x: 30,
+      y: 25,
+      backendNodeId: homeHit.hitTarget!.backendNodeId,
+      documentId: homeHit.documentId!,
+    });
+    expect(foreignHit.documentId).not.toBe(homeHit.documentId);
+    expect(foreignHit.requestedHit).toBe("stale");
+    expect(foreignHit.requestedTarget).toBeNull();
     await click(observed.send);
     await click(hidden.send);
     await click(remote.send);
     const remoteReport = await remote.send("Kitesurf.stopOperationDiagnostics", { waitMs: 100 });
     expect(remoteReport.exceptions).toEqual([{ kind: "TypeError", timestamp: expect.any(Number) }]);
     expect(remoteReport.requests).toEqual([]);
+    expect(remoteReport.beforeClicks).toHaveLength(1);
     const result = await observed.send("Kitesurf.stopOperationDiagnostics", { waitMs: 100 });
     expect(result.requests).toEqual([
       { type: "Fetch", method: "GET", url: slowUrl, status: null, state: "pending" },
     ]);
     expect(result.exceptions).toEqual([]);
     expect(result.completedClicks).toBe(1);
+    expect(result.beforeClicks).toHaveLength(1);
+    expect(result.beforeClicks[0]?.documentId).not.toBe(remoteReport.beforeClicks[0]?.documentId);
     expect(result.laterActivity).toBe("unverified");
     await observe(observed.send);
     await connection.send("Target.attachToTarget", { targetId: observed.targetId, flatten: true });
@@ -244,5 +276,157 @@ test("returns without waiting for the network and excludes other pages and conne
   } finally {
     connection.close();
     separate.close();
+  }
+}, 60_000);
+
+async function backendIdFor(send: PageSend, selector: string): Promise<number> {
+  const { root } = await send("DOM.getDocument", { depth: 0 });
+  const { nodeId } = await send("DOM.querySelector", { nodeId: root.nodeId, selector });
+  const { node } = await send("DOM.describeNode", { nodeId });
+  expect(node.backendNodeId).toBeGreaterThan(0);
+  return node.backendNodeId;
+}
+
+test("inspects the shared hit test, including transparent overlays and pointer-events", async () => {
+  const connection = await connect();
+  try {
+    const { send } = await attach(
+      connection,
+      `
+      <style>
+        #plain span { position: absolute; inset: 5px; display: block }
+        #covered { left: 150px } #under { left: 290px }
+        .cover { position: absolute; top: 10px; width: 120px; height: 38px;
+          opacity: 0; z-index: 2; background: black }
+      </style>
+      <button id="plain"><span>Nested</span></button>
+      <button id="covered">Covered</button><div class="cover" style="left:150px"></div>
+      <button id="under">Behind</button>
+      <div id="ignored" class="cover" style="left:290px; pointer-events:none"></div>
+    `,
+    );
+    const plain = await send("Kitesurf.inspectInteractionTarget", { x: 30, y: 25 });
+    expect(plain.hit).toBe("hit");
+    expect(plain.hitTarget).toMatchObject({ tagName: "SPAN", overlapsViewport: true });
+    expect(plain.documentId).toEqual(expect.any(String));
+    const target = async (selector: string, x: number) =>
+      send("Kitesurf.inspectInteractionTarget", {
+        x,
+        y: 25,
+        backendNodeId: await backendIdFor(send, selector),
+        documentId: plain.documentId!,
+      });
+    const plainId = await backendIdFor(send, "#plain");
+    const { model } = await send("DOM.getBoxModel", { backendNodeId: plainId });
+    expect(await target("#plain", 30)).toMatchObject({
+      requestedHit: "descendant",
+      requestedTarget: {
+        tagName: "BUTTON",
+        disabled: false,
+        overlapsViewport: true,
+        rect: { x: 10, y: 10, width: model.width, height: model.height },
+      },
+    });
+    expect(await target("#covered", 165)).toMatchObject({
+      requestedHit: "other",
+      hitTarget: { tagName: "DIV" },
+      requestedTarget: { tagName: "BUTTON" },
+    });
+    expect(await target("#ignored", 310)).toMatchObject({
+      requestedHit: "other",
+      hitTarget: { tagName: "BUTTON" },
+      requestedTarget: { pointerEvents: "none", overlapsViewport: true },
+    });
+    expect(await target("#under", 310)).toMatchObject({ requestedHit: "self" });
+  } finally {
+    connection.close();
+  }
+}, 60_000);
+
+test("reports layout, visibility, and HTML form disabled state separately", async () => {
+  const connection = await connect();
+  try {
+    const { send } = await attach(
+      connection,
+      `
+      <button id="hidden-display" style="display:none">No layout</button>
+      <button id="hidden-visibility" style="visibility:hidden; left:150px">Hidden</button>
+      <button id="offscreen" style="left:2200px">Outside</button>
+      <button id="disabled" disabled>Disabled</button>
+      <fieldset disabled><legend><input id="legend"></legend><input id="inherited"></fieldset>
+    `,
+    );
+    const { documentId } = await send("Kitesurf.inspectInteractionTarget", { x: 30, y: 25 });
+    const read = async (selector: string, x = 30) =>
+      send("Kitesurf.inspectInteractionTarget", {
+        x,
+        y: 25,
+        backendNodeId: await backendIdFor(send, selector),
+        documentId: documentId!,
+      });
+    expect((await read("#hidden-display")).requestedTarget?.display).toBe("none");
+    expect((await read("#hidden-visibility", 165)).requestedTarget?.visibility).toBe("hidden");
+    expect((await read("#offscreen")).requestedTarget?.overlapsViewport).toBe(false);
+    expect((await read("#disabled")).requestedTarget?.disabled).toBe(true);
+    expect((await read("#inherited")).requestedTarget?.disabled).toBe(true);
+    expect((await read("#legend")).requestedTarget?.disabled).toBe(false);
+  } finally {
+    connection.close();
+  }
+}, 60_000);
+
+test("inspection has no input side effects and click diagnostics preserve the pre-dispatch node", async () => {
+  const connection = await connect();
+  try {
+    const { send } = await attach(
+      connection,
+      `
+      <input id="focus" value="${secret}">
+      <form method="post" action="/__fixtures/operation-result.html">
+        <button id="${secret}" name="${secret}" aria-label="${secret}"
+          onclick="this.remove(); return false">${secret}</button>
+      </form>
+      <div style="height:2000px"></div>
+    `,
+    );
+    await send("Runtime.evaluate", {
+      expression: "document.getElementById('focus').focus(); scrollTo(0, 5)",
+    });
+    const readState = () =>
+      send("Runtime.evaluate", {
+        expression: "[document.activeElement.id, scrollX, scrollY]",
+        returnByValue: true,
+      });
+    const original = await readState();
+    await observe(send);
+    const hit = await send("Kitesurf.inspectInteractionTarget", { x: 30, y: 25 });
+    expect(hit.hitTarget?.tagName).toBe("BUTTON");
+    expect(JSON.stringify(hit)).not.toContain(secret);
+    expect((await readState()).result.value).toEqual(original.result.value);
+    const inspection = await send("Kitesurf.stopOperationDiagnostics");
+    expect(inspection.beforeClicks).toEqual([]);
+    expect(inspection.requests).toEqual([]);
+    expect(inspection.completedClicks).toBe(0);
+
+    await observe(send);
+    await click(send);
+    const after = await send("Kitesurf.inspectInteractionTarget", { x: 30, y: 25 });
+    const operation = await send("Kitesurf.stopOperationDiagnostics");
+    expect(after.documentId).toBe(hit.documentId);
+    expect(after.hitTarget?.backendNodeId).not.toBe(hit.hitTarget?.backendNodeId);
+    expect(operation.beforeClicks).toEqual([
+      expect.objectContaining({
+        documentId: hit.documentId,
+        x: 30,
+        y: 25,
+        hit: "hit",
+        hitTarget: { backendNodeId: hit.hitTarget?.backendNodeId, tagName: "BUTTON" },
+        dispatchTarget: { backendNodeId: hit.hitTarget?.backendNodeId, tagName: "BUTTON" },
+      }),
+    ]);
+    expect(operation.requests).toEqual([]);
+    expect(JSON.stringify(operation)).not.toContain(secret);
+  } finally {
+    connection.close();
   }
 }, 60_000);

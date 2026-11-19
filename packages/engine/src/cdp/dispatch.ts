@@ -88,7 +88,8 @@ function enforceOperationScope(ctx: DispatchCtx, req: CdpRequest, domain: string
   if (!diagnostics?.observedFrameId) return;
   if (
     req.method === "Kitesurf.startOperationDiagnostics" ||
-    req.method === "Kitesurf.stopOperationDiagnostics"
+    req.method === "Kitesurf.stopOperationDiagnostics" ||
+    req.method === "Kitesurf.inspectInteractionTarget"
   )
     return;
   if (!PAGE_COMMAND_DOMAINS.has(domain) && domain !== "Kitesurf") return;

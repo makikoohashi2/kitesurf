@@ -76,6 +76,7 @@ export const PAGE_SCRIPT_METHODS: PageScriptArgBuilders = {
   dispatchMouseEvent: (params): MethodArguments<"dispatchMouseEvent"> => [
     params.type,
     params.init ?? {},
+    params.captureTarget,
   ],
   dispatchKeyEvent: (params): MethodArguments<"dispatchKeyEvent"> => [
     params.type,

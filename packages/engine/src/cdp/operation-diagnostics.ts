@@ -3,6 +3,7 @@
 // https://opensource.org/licenses/Apache-2.0
 
 import type Protocol from "devtools-protocol";
+import type { BeforeClickSnapshot } from "@kitesurf/jsrpc-types/query-dom";
 import {
   selectDiagnosticResponseHeaders,
   type DiagnosticHeaderSource,
@@ -94,6 +95,7 @@ interface Capture {
   currentRequests: Map<string, Request>;
   exceptions: Protocol.Kitesurf.OperationException[];
   completedClicks: number;
+  beforeClicks: BeforeClickSnapshot[];
   completedDocumentNavigations: number;
   lastReadyRequestId?: string;
   postStartObserved: boolean;
@@ -158,6 +160,7 @@ export class OperationDiagnostics {
       currentRequests: new Map(),
       exceptions: [],
       completedClicks: 0,
+      beforeClicks: [],
       completedDocumentNavigations: 0,
       postStartObserved: false,
       droppedRecords: 0,
@@ -199,6 +202,7 @@ export class OperationDiagnostics {
       requests: capture.requests,
       exceptions: capture.exceptions,
       completedClicks: capture.completedClicks,
+      beforeClicks: capture.beforeClicks,
       completedDocumentNavigations: capture.completedDocumentNavigations,
       postStartObserved: capture.postStartObserved,
       droppedRecords: capture.droppedRecords,
@@ -302,9 +306,14 @@ export class OperationDiagnostics {
     if (request) request.state = timedOut ? "timedOut" : "failed";
   }
 
-  click(frameId: string, owner: string | undefined): void {
+  captureClick(frameId: string, owner: string | undefined) {
     const capture = this.capture;
-    if (capture && capture.owner === owner && this.watches(frameId)) capture.completedClicks++;
+    if (!capture || capture.owner !== owner || !this.watches(frameId)) return;
+    return (dispatched: boolean, beforeClick?: BeforeClickSnapshot): void => {
+      if (this.capture !== capture || !this.watches(frameId)) return;
+      if (dispatched) capture.completedClicks++;
+      if (beforeClick && this.hasRoom(capture)) capture.beforeClicks.push(beforeClick);
+    };
   }
 
   documentReady(frameId: string, requestId: string): void {
@@ -336,7 +345,11 @@ export class OperationDiagnostics {
   }
 
   private hasRoom(capture: Capture): boolean {
-    if (capture.requests.length + capture.exceptions.length < MAX_RECORDS) return true;
+    if (
+      capture.requests.length + capture.exceptions.length + capture.beforeClicks.length <
+      MAX_RECORDS
+    )
+      return true;
     capture.droppedRecords++;
     return false;
   }
